@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zarf-api-smoke
+data:
+  deployed-by: zarf-api
+  marker: "###ZARF_VAR_MARKER###"

@@ -1,0 +1,16 @@
+kind: ZarfPackageConfig
+metadata:
+  name: zarf-api-smoke
+  version: 0.1.0
+  description: "Smoke-test package for zarf-api E2E tests (configmap only, no images)"
+variables:
+  - name: MARKER
+    default: "default-marker"
+components:
+  - name: configmap
+    required: true
+    manifests:
+      - name: smoke
+        namespace: zarf-api-smoke
+        files:
+          - cm.yaml

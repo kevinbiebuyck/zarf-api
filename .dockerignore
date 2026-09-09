@@ -1,0 +1,8 @@
+.git
+data/
+dist/
+charts/
+*.md
+# Trim the submodule down to what the build needs is not possible with a
+# plain COPY (Go needs the full module), but skip its VCS metadata.
+zarf/.git

@@ -1,0 +1,57 @@
+{{- if .Values.rbac.clusterAdmin }}
+---
+# Zarf installs arbitrary package resources (namespaces, CRDs, webhooks,
+# cluster roles, helm releases in any namespace) and manages its state as
+# secrets in the zarf namespace, so cluster-admin is the practical default.
+# Set rbac.clusterAdmin=false and provide rbac.extraRules to lock this down.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "zarf-api.fullname" . }}
+  labels:
+    {{- include "zarf-api.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "zarf-api.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- else }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "zarf-api.fullname" . }}
+  labels:
+    {{- include "zarf-api.labels" . | nindent 4 }}
+rules:
+  # Minimum needed by zarf itself: manage the zarf namespace and the state /
+  # deployed-package secrets in it. Everything your packages install must be
+  # granted on top via rbac.extraRules.
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["secrets", "configmaps", "services", "persistentvolumeclaims", "pods", "pods/log"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  {{- with .Values.rbac.extraRules }}
+  {{- toYaml . | nindent 2 }}
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "zarf-api.fullname" . }}
+  labels:
+    {{- include "zarf-api.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "zarf-api.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "zarf-api.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

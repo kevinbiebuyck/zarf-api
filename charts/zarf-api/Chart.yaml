@@ -1,0 +1,17 @@
+apiVersion: v2
+name: zarf-api
+description: |-
+  An HTTP API over zarf (https://zarf.dev) that imports zarf packages and
+  deploys them into the cluster it runs in. Designed to sit behind an API
+  management layer that handles authentication and authorization.
+type: application
+# Chart version.
+version: 0.1.0
+# Default image tag.
+appVersion: "0.1.0"
+keywords:
+  - zarf
+  - airgap
+  - kubernetes
+maintainers:
+  - name: kevinbiebuyck

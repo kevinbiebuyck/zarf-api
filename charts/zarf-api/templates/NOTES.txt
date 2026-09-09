@@ -1,0 +1,34 @@
+zarf-api has been deployed.
+
+Reach it from inside the cluster at:
+  http://{{ include "zarf-api.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Or port-forward locally:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "zarf-api.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+
+Quick start (replace $POD details as needed):
+
+  # 1. Import a package (single shot)
+  curl -X POST --data-binary @zarf-package-*.tar.zst \
+    "http://localhost:{{ .Values.service.port }}/api/v1/packages"
+
+  # ... or in chunks
+  UPLOAD=$(curl -s -X POST http://localhost:{{ .Values.service.port }}/api/v1/uploads | jq -r .id)
+  split -b 50m zarf-package-*.tar.zst /tmp/chunk-
+  i=0; for f in /tmp/chunk-*; do
+    curl -s -X PUT --data-binary @"$f" "http://localhost:{{ .Values.service.port }}/api/v1/uploads/$UPLOAD/chunks/$i"; i=$((i+1));
+  done
+  curl -X POST "http://localhost:{{ .Values.service.port }}/api/v1/uploads/$UPLOAD/complete"
+
+  # 2. List local packages
+  curl http://localhost:{{ .Values.service.port }}/api/v1/packages
+
+  # 3. Deploy into this cluster
+  curl -X POST -H 'Content-Type: application/json' \
+    -d '{"components":"optional-component","setVariables":{"KEY":"value"}}' \
+    "http://localhost:{{ .Values.service.port }}/api/v1/packages/<PACKAGE_ID>/deploy?wait=true"
+
+  # 4. List deployed packages
+  curl http://localhost:{{ .Values.service.port }}/api/v1/deployments
+
+Remember: this API performs no authentication. Put it behind your APIM.

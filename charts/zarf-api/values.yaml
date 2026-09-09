@@ -1,0 +1,84 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/kevinbiebuyck/zarf-api
+  # Defaults to the chart appVersion when empty.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# The API is meant to run behind an APIM/gateway that enforces authn/authz.
+# The server itself performs no authentication.
+ingress:
+  enabled: false
+  className: ""
+  hosts: []
+  #  - host: zarf-api.local
+  #    paths:
+  #      - path: /
+  #        pathType: Prefix
+  tls: []
+
+persistence:
+  enabled: true
+  # storageClass: "fast-ssd"
+  size: 20Gi
+  accessModes:
+    - ReadWriteOnce
+  # existingClaim: "my-pvc"
+
+rbac:
+  # Zarf deploys arbitrary resources (namespaces, CRDs, cluster roles,
+  # admission webhooks, ...) on behalf of the packages it installs, so the
+  # practical default is cluster-admin. Set to false to supply your own
+  # (narrower) rule set via extraRules.
+  clusterAdmin: true
+  # extraRules are used to build a dedicated ClusterRole when
+  # clusterAdmin=false. You are responsible for granting everything your
+  # packages need (including zarf state management in the zarf namespace).
+  extraRules: []
+  #  - apiGroups: [""]
+  #    resources: ["secrets", "configmaps", "namespaces"]
+  #    verbs: ["*"]
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false # package actions may write scratch files
+  capabilities:
+    drop:
+      - ALL
+
+# Extra environment variables, e.g.:
+# env:
+#   ZARF_API_LOG_LEVEL: debug
+#   ZARF_API_PUBLIC_KEY_PATH: /keys/cosign.pub
+env: {}
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 2Gi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
