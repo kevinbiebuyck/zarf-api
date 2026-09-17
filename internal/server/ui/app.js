@@ -91,18 +91,28 @@ function confirmModal(title, message, confirmLabel, onConfirm) {
   openModal(title, body, [cancel, ok]);
 }
 
-// ---------- tabs ----------
+// ---------- tabs (hash routing: #/packages, #/installed, #/jobs) ----------
 
+const TABS = ["packages", "installed", "jobs"];
 let activeTab = "packages";
+
+function tabFromHash() {
+  const name = location.hash.replace(/^#\/?/, "");
+  return TABS.includes(name) ? name : "packages";
+}
+
+function applyRoute() {
+  activeTab = tabFromHash();
+  document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === activeTab));
+  document.querySelectorAll(".tab-panel").forEach((p) => p.classList.add("hidden"));
+  $("#tab-" + activeTab).classList.remove("hidden");
+  refreshActive();
+}
+
 document.querySelectorAll(".tab").forEach((btn) => {
-  btn.onclick = () => {
-    activeTab = btn.dataset.tab;
-    document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b === btn));
-    document.querySelectorAll(".tab-panel").forEach((p) => p.classList.add("hidden"));
-    $("#tab-" + activeTab).classList.remove("hidden");
-    refreshActive();
-  };
+  btn.onclick = () => { location.hash = "/" + btn.dataset.tab; };
 });
+window.addEventListener("hashchange", applyRoute);
 
 function refreshActive() {
   if (activeTab === "packages") loadPackages();
@@ -536,8 +546,6 @@ async function openDeployModal(opts) {
     const cf = el("div", "field");
     cf.dataset.schemaForm = "1";
     cf.append(el("label", "", "Configuration"));
-    cf.append(el("div", "hint muted",
-      "Generated from the package's config.schema.json. Applied as helm values to every chart of the deployed components."));
     cf.append(schemaFields(schema));
     body.append(cf);
   } else if (charts.length) {
@@ -968,7 +976,7 @@ function updateJobsBadge(jobs) {
 }
 
 function switchToJobs() {
-  document.querySelector('.tab[data-tab="jobs"]').click();
+  location.hash = "/jobs";
 }
 
 // ---------- boot ----------
@@ -980,7 +988,7 @@ $("#refresh-installed-btn").onclick = loadInstalled;
 $("#job-logs-close").onclick = () => $("#job-logs").classList.add("hidden");
 
 setupUpload();
-loadPackages();
+applyRoute();
 checkUploadResume();
 api("GET", "/version").then((v) => { $("#version").textContent = v.version; }).catch(() => {});
 setInterval(loadJobs, 3000);
