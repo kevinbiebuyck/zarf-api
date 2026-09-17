@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 
 	"github.com/zarf-dev/zarf/src/pkg/packager/layout"
 
+	"github.com/kevinbiebuyck/zarf-api/internal/store"
 	"github.com/kevinbiebuyck/zarf-api/internal/zarfz"
 )
 
@@ -70,17 +72,33 @@ func (h *Handlers) packageDefinition(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, def)
 }
 
-// packageConfigSchema returns the package's config.schema.json (a JSON
-// Schema shipped at the package root describing the install-time
-// configuration surface) so clients can render a generated config form.
-// 404 when the package has no such file.
+// packageConfigSchema returns the JSON Schema describing the package's
+// install-time configuration surface, so clients can render a generated
+// config form. The native zarf mechanism — a values.schema.json produced by
+// `zarf package create` from the zarf.yaml `values.schema` field — is
+// preferred; the API-specific config.schema.json convention (see
+// tools/addschema) is the fallback. The X-Zarf-Schema-Target response header
+// tells the client where collected values go: "values" (package values
+// document, validated by zarf at deploy time) or "overrides" (per-chart helm
+// values overrides). 404 when the package has neither file.
 func (h *Handlers) packageConfigSchema(w http.ResponseWriter, r *http.Request) {
-	schema, err := h.store.ReadPackageRootFile(r.Context(), r.PathValue("id"), "config.schema.json")
+	id := r.PathValue("id")
+	schema, err := h.store.ReadPackageRootFile(r.Context(), id, "values.schema.json")
+	target := "values"
 	if err != nil {
-		writeStoreError(w, err)
-		return
+		if !errors.Is(err, store.ErrNotFound) {
+			writeStoreError(w, err)
+			return
+		}
+		schema, err = h.store.ReadPackageRootFile(r.Context(), id, "config.schema.json")
+		target = "overrides"
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Zarf-Schema-Target", target)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(schema)
 }

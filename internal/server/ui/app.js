@@ -482,7 +482,11 @@ function schemaFields(schema, prefix = "") {
 
 // collectSchemaValues reads the generated form into a flat dot-path map of
 // typed values. Empty optional fields are skipped so chart defaults apply.
-function collectSchemaValues(form) {
+// With inferStrings (helm overrides path), string values that look like
+// bools/ints are single-quote wrapped so server-side type inference keeps
+// them strings. Without it (native package values path), strings are sent
+// verbatim — no inference happens for inline values.
+function collectSchemaValues(form, inferStrings = true) {
   const values = {};
   const missing = [];
   for (const i of form.querySelectorAll("[data-schema-path]")) {
@@ -499,25 +503,44 @@ function collectSchemaValues(form) {
       const numeric = i.dataset.itemType === "integer" || i.dataset.itemType === "number";
       values[path] = numeric ? parts.map(Number) : parts;
     } else {
-      // Wrap values that look like bools/ints in single quotes so the
-      // server-side type inference keeps them strings (zarf convention).
       const v = i.value.trim();
-      values[path] = /^(true|false)$/i.test(v) || /^-?\d+$/.test(v) ? `'${v}'` : v;
+      values[path] = inferStrings && (/^(true|false)$/i.test(v) || /^-?\d+$/.test(v)) ? `'${v}'` : v;
     }
   }
   return { values, missing };
 }
 
+// unflatten turns a flat dot-path map into a nested object, e.g.
+// {"a.b": 1} -> {a: {b: 1}}. Used to send schema form values as the inline
+// package values document.
+function unflatten(flat) {
+  const out = {};
+  for (const [path, v] of Object.entries(flat)) {
+    const keys = path.split(".");
+    let node = out;
+    for (let i = 0; i < keys.length - 1; i++) node = node[keys[i]] ??= {};
+    node[keys[keys.length - 1]] = v;
+  }
+  return out;
+}
+
 // definition: DefinitionInfo from /packages/{id}/definition (or reconstructed
 // from a deployment). preselectedComponents: names to check. When the package
-// ships a config.schema.json at its root, the values section is a form
-// generated from that schema instead of free-form key/value rows.
+// ships a values.schema.json (native zarf `values.schema`) or a
+// config.schema.json at its root, the values section is a form generated from
+// that schema instead of free-form key/value rows. The endpoint's
+// X-Zarf-Schema-Target header decides where values go on submit: package
+// values ("values", validated by zarf at deploy) or per-chart helm overrides
+// ("overrides").
 async function openDeployModal(opts) {
   const { title, storeId, definition, preselectedComponents } = opts;
-  let schema = null;
+  let schema = null, schemaTarget = null;
   try {
     const r = await fetch(`${API}/packages/${encodeURIComponent(storeId)}/config-schema`);
-    if (r.ok) schema = await r.json();
+    if (r.ok) {
+      schema = await r.json();
+      schemaTarget = r.headers.get("X-Zarf-Schema-Target") || "overrides";
+    }
   } catch { /* no schema -> free-form values */ }
   const body = el("div");
 
@@ -560,7 +583,8 @@ async function openDeployModal(opts) {
   }
 
   // --- configuration: schema-generated form when the package ships a
-  // config.schema.json, otherwise free-form per-chart helm values overrides ---
+  // values.schema.json / config.schema.json, otherwise free-form per-chart
+  // helm values overrides ---
   const charts = [];
   for (const c of definition.components || []) {
     for (const ch of c.charts || []) charts.push({ component: c.name, ...ch });
@@ -650,10 +674,22 @@ async function openDeployModal(opts) {
     const components = [...body.querySelectorAll("[data-component]")]
       .filter((i) => i.checked).map((i) => i.dataset.component);
     const valuesOverrides = {};
+    let packageValues = null;
     const schemaForm = body.querySelector("[data-schema-form]");
-    if (schemaForm) {
-      // Generated form: same values for every chart of the deployed
-      // (required + selected) components.
+    if (schemaForm && schemaTarget === "values") {
+      // Native zarf values.schema.json: collected values become the package
+      // values document (nested, typed). Zarf validates them against the
+      // schema at deploy time; charts consume them via their values
+      // sourcePath/targetPath mappings.
+      const { values, missing } = collectSchemaValues(schemaForm, false);
+      if (missing.length) {
+        toast("Missing required configuration: " + missing.join(", "), "err");
+        return;
+      }
+      if (Object.keys(values).length) packageValues = unflatten(values);
+    } else if (schemaForm) {
+      // config.schema.json convention: same values for every chart of the
+      // deployed (required + selected) components.
       const { values, missing } = collectSchemaValues(schemaForm);
       if (missing.length) {
         toast("Missing required configuration: " + missing.join(", "), "err");
@@ -683,6 +719,7 @@ async function openDeployModal(opts) {
       });
     }
     const req = {};
+    if (packageValues) req.values = packageValues;
     if (Object.keys(valuesOverrides).length) req.valuesOverrides = valuesOverrides;
     if (components.length) req.components = components.join(",");
     for (const i of body.querySelectorAll("[data-opt]")) {

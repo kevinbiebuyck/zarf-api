@@ -61,7 +61,7 @@ Base path: `/api/v1`
 | `GET /api/v1/packages` | List imported packages |
 | `GET /api/v1/packages/{id}` | Package metadata |
 | `GET /api/v1/packages/{id}/definition` | Package definition (variables, components) — `zarf package inspect definition` |
-| `GET /api/v1/packages/{id}/config-schema` | The package's `config.schema.json` (JSON Schema for install-time configuration), `404` when absent |
+| `GET /api/v1/packages/{id}/config-schema` | The package's JSON Schema for install-time configuration (native `values.schema.json` preferred, `config.schema.json` fallback; `X-Zarf-Schema-Target` header says which), `404` when absent |
 | `DELETE /api/v1/packages/{id}` | Delete from the local store |
 | `POST /api/v1/packages/{id}/deploy` | Deploy into the cluster (async job, `?wait=true` for sync) |
 
@@ -142,16 +142,47 @@ else. String leaves are typed by inference (`"3"` → `3`, `"true"` → `true`,
 wrap in single quotes to force a string); non-string JSON values (bool,
 number, array) are used as-is. This is what the UI's values forms send.
 
-### Schema-driven configuration (`config.schema.json`)
+### Schema-driven configuration
 
-When a package ships a **`config.schema.json`** (JSON Schema) at the root of
-its tarball, the deploy/edit/upgrade modal replaces the free-form values
-editor with a **form generated from that schema** — strings, numbers,
-booleans, `enum` dropdowns, nested objects and comma-separated arrays, with
-`default` prefill, `description` hints and `required` markers. On submit the
-values are sent as `valuesOverrides` applied to **every helm chart of the
-components being deployed** (helm harmlessly ignores keys a chart doesn't
-use).
+When a package ships a JSON Schema at the root of its tarball, the
+deploy/edit/upgrade modal replaces the free-form values editor with a **form
+generated from that schema** — strings, numbers, booleans, `enum` dropdowns,
+nested objects and comma-separated arrays, with `default` prefill,
+`description` hints and `required` markers. Two flavors are supported, and
+`GET /api/v1/packages/{id}/config-schema` serves whichever the package has
+(native first), with an `X-Zarf-Schema-Target` header telling them apart.
+
+#### Native: `values.schema` (recommended)
+
+Since v0.64 zarf has package-level values (Helm-style) with an optional
+schema. Declare it in `zarf.yaml` and map values into charts:
+
+```yaml
+values:
+  files:                  # optional package-level defaults
+    - values.yaml
+  schema: values.schema.json
+components:
+  - name: podinfo
+    charts:
+      - name: podinfo
+        values:
+          - sourcePath: .replicas      # package values key
+            targetPath: .replicaCount  # chart values key
+```
+
+`zarf package create` then writes the merged schema as **`values.schema.json`**
+at the package root — included and checksummed natively, no post-processing
+needed. The UI form submits as `values` (the package values document) and
+**zarf validates them against the schema at deploy time**
+(`skipValuesSchemaValidation` bypasses). This is the recommended way.
+
+#### Alternative: `config.schema.json` (API convention)
+
+A **`config.schema.json`** at the package root also triggers the generated
+form, but values are sent as `valuesOverrides` applied to **every helm chart
+of the components being deployed** (helm harmlessly ignores keys a chart
+doesn't use). Useful when you can't use chart `values` mappings.
 
 Packaging caveat: `zarf package create` only writes files it knows about, so
 a `config.schema.json` sitting next to your `zarf.yaml` is **not** included
