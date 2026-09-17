@@ -118,9 +118,17 @@ Mirrors `zarf package deploy` flags:
   "verify": "if-possible",
   "publicKeyPath": "/keys/cosign.pub",
   "skipValuesSchemaValidation": false,
-  "skipVersionCheck": false
+  "skipVersionCheck": false,
+  "deletePackageAfterDeploy": false
 }
 ```
+
+`deletePackageAfterDeploy` (not a zarf flag — an API convenience) removes the
+package from the local store once the deploy **succeeded**; the job result
+then reports `"packageDeleted": true`. The deployment stays fully managed
+from cluster state (remove/inspect keep working); re-upload the package to
+edit it later. A failed cleanup only logs a warning, it never fails the
+deploy.
 
 `source` (optional) overrides the stored package with anything the CLI accepts
 as `PACKAGE_SOURCE` (`oci://...`, `https://...`, local path).

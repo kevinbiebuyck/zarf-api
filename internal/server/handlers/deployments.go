@@ -16,7 +16,14 @@ import (
 func (h *Handlers) packageDeploy(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req zarfz.DeployRequest
+	var req struct {
+		zarfz.DeployRequest
+		// DeletePackageAfterDeploy removes the package from the local store
+		// once the deploy succeeded. Not a zarf concept — an API convenience
+		// for "install and forget" workflows (the deployment can still be
+		// removed/inspected from cluster state afterwards).
+		DeletePackageAfterDeploy bool `json:"deletePackageAfterDeploy,omitempty"`
+	}
 	if err := decodeBody(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid request body: %w", err))
 		return
@@ -37,11 +44,11 @@ func (h *Handlers) packageDeploy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	job := h.jobs.Create(jobs.KindDeploy, id)
-	go h.runDeploy(job, req)
+	go h.runDeploy(job, req.DeployRequest, req.DeletePackageAfterDeploy)
 	h.respondJob(w, r, job, http.StatusAccepted)
 }
 
-func (h *Handlers) runDeploy(job *jobs.Job, req zarfz.DeployRequest) {
+func (h *Handlers) runDeploy(job *jobs.Job, req zarfz.DeployRequest, deletePackageAfterDeploy bool) {
 	log := job.Logger(h.logger)
 	ctx := logger.WithContext(context.Background(), log)
 
@@ -65,6 +72,7 @@ func (h *Handlers) runDeploy(job *jobs.Job, req zarfz.DeployRequest) {
 	result := struct {
 		Components     []component          `json:"components"`
 		ConnectStrings state.ConnectStrings `json:"connectStrings,omitempty"`
+		PackageDeleted bool                 `json:"packageDeleted,omitempty"`
 	}{Components: []component{}}
 	connectStrings := state.ConnectStrings{}
 	for _, c := range res.DeployedComponents {
@@ -77,6 +85,16 @@ func (h *Handlers) runDeploy(job *jobs.Job, req zarfz.DeployRequest) {
 	}
 	if len(connectStrings) > 0 {
 		result.ConnectStrings = connectStrings
+	}
+
+	// A failed cleanup must not fail the successful deploy.
+	if deletePackageAfterDeploy {
+		if err := h.store.Delete(ctx, job.Package); err != nil {
+			log.Warn("deploy succeeded but package cleanup failed", "package", job.Package, "error", err)
+		} else {
+			log.Info("package deleted from store after deploy", "package", job.Package)
+			result.PackageDeleted = true
+		}
 	}
 
 	log.Info("deploy succeeded", "components", len(result.Components))

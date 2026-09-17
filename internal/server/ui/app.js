@@ -610,6 +610,8 @@ async function openDeployModal(opts) {
   mkCheck("Connected deploy (no image/repo mirroring)", "connected", "for clusters without zarf init");
   mkCheck("Force conflicts (server-side apply)", "forceConflicts");
   mkCheck("Skip version check", "skipVersionCheck");
+  mkCheck("Delete package from store after successful deploy", "deletePackageAfterDeploy",
+    "the install stays fully managed from cluster state; re-upload the package to edit it later");
   body.append(adv);
 
   const submit = el("button", "btn primary", opts.submitLabel || "Deploy");
