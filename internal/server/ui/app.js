@@ -300,6 +300,15 @@ async function uploadPackage(file, resumeSession = null) {
   }
 }
 
+// Warn before leaving the page mid-upload: the file handle cannot be
+// restored, so the upload would have to be resumed by re-picking the file.
+window.addEventListener("beforeunload", (e) => {
+  if (uploadInProgress) {
+    e.preventDefault();
+    e.returnValue = ""; // triggers the browser's native leave confirmation
+  }
+});
+
 // --- resume banner ---
 
 function showResumeBanner(state, session) {
