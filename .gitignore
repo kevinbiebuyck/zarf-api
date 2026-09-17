@@ -6,3 +6,5 @@ dist/
 e2e-data/
 e2e-out/
 e2e-src/
+
+*.exe~

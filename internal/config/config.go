@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 // Config is the runtime configuration of the API server.
@@ -35,6 +36,12 @@ type Config struct {
 	// UIEnabled serves the embedded web UI at /ui/ when true.
 	UIEnabled bool
 
+	// BasePath is an optional URL prefix the whole API and UI are served
+	// under, for deployments behind a reverse proxy / APIM that routes on a
+	// path prefix (e.g. "/zarf-api"). Health probes stay at the root because
+	// the kubelet hits the pod directly. Empty means serve at the root.
+	BasePath string
+
 	// MaxUploadSessions caps concurrent chunked-upload sessions.
 	MaxUploadSessions int
 	// MaxJobs caps how many finished jobs are retained in memory.
@@ -61,6 +68,7 @@ func FromEnv() (Config, error) {
 		TempDir:           os.Getenv("ZARF_API_TEMP_DIR"),
 		PublicKeyPath:     os.Getenv("ZARF_API_PUBLIC_KEY_PATH"),
 		UIEnabled:         os.Getenv("ZARF_API_UI_ENABLED") != "false",
+		BasePath:          os.Getenv("ZARF_API_BASE_PATH"),
 		MaxUploadSessions: 16,
 		MaxJobs:           100,
 		JobLogLines:       2000,
@@ -79,6 +87,15 @@ func FromEnv() (Config, error) {
 			return Config{}, fmt.Errorf("invalid ZARF_API_MAX_UPLOAD_SESSIONS %q", v)
 		}
 		cfg.MaxUploadSessions = n
+	}
+
+	// Normalize the base path to "/prefix" form (or empty).
+	if cfg.BasePath != "" {
+		bp := "/" + strings.Trim(cfg.BasePath, "/")
+		if bp == "/" || strings.ContainsAny(bp, " ?#") {
+			return Config{}, fmt.Errorf("invalid ZARF_API_BASE_PATH %q", cfg.BasePath)
+		}
+		cfg.BasePath = bp
 	}
 
 	dataDir, err := filepath.Abs(cfg.DataDir)

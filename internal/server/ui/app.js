@@ -1,7 +1,10 @@
 /* zarf-api UI — dependency-free SPA talking to /api/v1. */
 "use strict";
 
-const API = "/api/v1";
+// Derive the API base from the page URL so the UI works under any
+// ZARF_API_BASE_PATH: the UI is always served at <base>/ui/.
+const BASE = location.pathname.replace(/\/ui\/?$/, "");
+const API = BASE + "/api/v1";
 
 // ---------- tiny helpers ----------
 

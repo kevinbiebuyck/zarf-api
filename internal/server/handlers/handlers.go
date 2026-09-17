@@ -34,40 +34,52 @@ func New(cfg config.Config, st *store.Store, jm *jobs.Manager, logger *slog.Logg
 	return &Handlers{cfg: cfg, store: st, jobs: jm, logger: logger}
 }
 
-// Register wires all API routes into mux.
+// Register wires all API routes into mux. When a base path is configured,
+// the API and UI are served under that prefix (for reverse proxies routing
+// on a path prefix); the health probes stay at the root because the kubelet
+// hits the pod directly, bypassing the proxy.
 func (h *Handlers) Register(mux *http.ServeMux) {
+	bp := h.cfg.BasePath
+
 	mux.HandleFunc("GET /healthz", h.healthz)
 	mux.HandleFunc("GET /readyz", h.readyz)
-	mux.HandleFunc("GET /api/v1/version", h.version)
 
-	mux.HandleFunc("POST /api/v1/packages", h.packageImport)
-	mux.HandleFunc("GET /api/v1/packages", h.packageList)
-	mux.HandleFunc("GET /api/v1/packages/{id}", h.packageGet)
-	mux.HandleFunc("GET /api/v1/packages/{id}/definition", h.packageDefinition)
-	mux.HandleFunc("DELETE /api/v1/packages/{id}", h.packageDelete)
-	mux.HandleFunc("POST /api/v1/packages/{id}/deploy", h.packageDeploy)
+	mux.HandleFunc("GET "+bp+"/api/v1/version", h.version)
 
-	mux.HandleFunc("POST /api/v1/uploads", h.uploadCreate)
-	mux.HandleFunc("GET /api/v1/uploads/{id}", h.uploadGet)
-	mux.HandleFunc("PUT /api/v1/uploads/{id}/chunks/{index}", h.uploadChunk)
-	mux.HandleFunc("POST /api/v1/uploads/{id}/complete", h.uploadComplete)
-	mux.HandleFunc("DELETE /api/v1/uploads/{id}", h.uploadAbort)
+	mux.HandleFunc("POST "+bp+"/api/v1/packages", h.packageImport)
+	mux.HandleFunc("GET "+bp+"/api/v1/packages", h.packageList)
+	mux.HandleFunc("GET "+bp+"/api/v1/packages/{id}", h.packageGet)
+	mux.HandleFunc("GET "+bp+"/api/v1/packages/{id}/definition", h.packageDefinition)
+	mux.HandleFunc("DELETE "+bp+"/api/v1/packages/{id}", h.packageDelete)
+	mux.HandleFunc("POST "+bp+"/api/v1/packages/{id}/deploy", h.packageDeploy)
 
-	mux.HandleFunc("GET /api/v1/deployments", h.deploymentList)
-	mux.HandleFunc("GET /api/v1/deployments/{name}", h.deploymentGet)
-	mux.HandleFunc("DELETE /api/v1/deployments/{name}", h.deploymentRemove)
-	mux.HandleFunc("POST /api/v1/deployments/{name}/remove", h.deploymentRemove)
+	mux.HandleFunc("POST "+bp+"/api/v1/uploads", h.uploadCreate)
+	mux.HandleFunc("GET "+bp+"/api/v1/uploads/{id}", h.uploadGet)
+	mux.HandleFunc("PUT "+bp+"/api/v1/uploads/{id}/chunks/{index}", h.uploadChunk)
+	mux.HandleFunc("POST "+bp+"/api/v1/uploads/{id}/complete", h.uploadComplete)
+	mux.HandleFunc("DELETE "+bp+"/api/v1/uploads/{id}", h.uploadAbort)
 
-	mux.HandleFunc("GET /api/v1/jobs", h.jobList)
-	mux.HandleFunc("GET /api/v1/jobs/{id}", h.jobGet)
+	mux.HandleFunc("GET "+bp+"/api/v1/deployments", h.deploymentList)
+	mux.HandleFunc("GET "+bp+"/api/v1/deployments/{name}", h.deploymentGet)
+	mux.HandleFunc("DELETE "+bp+"/api/v1/deployments/{name}", h.deploymentRemove)
+	mux.HandleFunc("POST "+bp+"/api/v1/deployments/{name}/remove", h.deploymentRemove)
+
+	mux.HandleFunc("GET "+bp+"/api/v1/jobs", h.jobList)
+	mux.HandleFunc("GET "+bp+"/api/v1/jobs/{id}", h.jobGet)
 
 	if h.cfg.UIEnabled {
-		// Exact root redirects to the UI; the UI subtree serves the embedded
-		// single-page app.
-		mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-			http.Redirect(w, r, "/ui/", http.StatusFound)
-		})
-		mux.Handle("GET /ui/", ui.Handler())
+		// The root and the bare base path redirect to the UI; the UI subtree
+		// serves the embedded single-page app.
+		uiPath := bp + "/ui/"
+		redirect := func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, uiPath, http.StatusFound)
+		}
+		mux.HandleFunc("GET /{$}", redirect)
+		if bp != "" {
+			mux.HandleFunc("GET "+bp+"/{$}", redirect)
+			mux.HandleFunc("GET "+bp, redirect) // bare prefix, no trailing slash
+		}
+		mux.Handle("GET "+bp+"/ui/", ui.Handler(bp+"/ui/"))
 	}
 }
 

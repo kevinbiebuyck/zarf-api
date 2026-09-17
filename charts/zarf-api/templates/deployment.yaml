@@ -43,6 +43,10 @@ spec:
               value: "8080"
             - name: ZARF_API_UI_ENABLED
               value: {{ .Values.ui.enabled | quote }}
+            {{- with .Values.basePath }}
+            - name: ZARF_API_BASE_PATH
+              value: {{ . | quote }}
+            {{- end }}
             {{- range $k, $v := .Values.env }}
             - name: {{ $k }}
               value: {{ $v | quote }}

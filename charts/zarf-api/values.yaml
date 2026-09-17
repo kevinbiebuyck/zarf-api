@@ -17,6 +17,12 @@ service:
 ui:
   enabled: true
 
+# basePath serves the API and UI under a URL prefix, for deployments behind
+# a reverse proxy / APIM that routes on a path prefix (the proxy must
+# forward the prefix unstripped). Health probes stay at the root.
+# Example: "/zarf-api" -> UI at /zarf-api/ui/, API at /zarf-api/api/v1/...
+basePath: ""
+
 # The API is meant to run behind an APIM/gateway that enforces authn/authz.
 # The server itself performs no authentication.
 ingress:

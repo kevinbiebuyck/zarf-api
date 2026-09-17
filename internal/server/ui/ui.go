@@ -9,8 +9,9 @@ import (
 //go:embed index.html app.js style.css
 var assets embed.FS
 
-// Handler serves the embedded UI assets. Mount it at /ui/ — the prefix is
-// stripped so /ui/ serves index.html and /ui/app.js etc. resolve relatively.
-func Handler() http.Handler {
-	return http.StripPrefix("/ui/", http.FileServerFS(assets))
+// Handler serves the embedded UI assets. prefix is the mount path including
+// a trailing slash (e.g. "/ui/" or "/zarf-api/ui/"); it is stripped so the
+// index and its relatively-referenced assets resolve under any base path.
+func Handler(prefix string) http.Handler {
+	return http.StripPrefix(prefix, http.FileServerFS(assets))
 }
