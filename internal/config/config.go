@@ -55,6 +55,10 @@ type Config struct {
 	UploadsDir string
 	// CacheDir is zarf's cache directory (OCI layers etc).
 	CacheDir string
+
+	// CustomColumns is an optional JSON string defining custom columns for the Installed tab.
+	// Format: [{"header": "My Col", "path": "connectStrings.my-col"}]
+	CustomColumns string
 }
 
 // FromEnv builds the configuration from the environment.
@@ -69,6 +73,7 @@ func FromEnv() (Config, error) {
 		PublicKeyPath:     os.Getenv("ZARF_API_PUBLIC_KEY_PATH"),
 		UIEnabled:         os.Getenv("ZARF_API_UI_ENABLED") != "false",
 		BasePath:          os.Getenv("ZARF_API_BASE_PATH"),
+		CustomColumns:     os.Getenv("ZARF_API_UI_CUSTOM_COLUMNS"),
 		MaxUploadSessions: 16,
 		MaxJobs:           100,
 		JobLogLines:       2000,

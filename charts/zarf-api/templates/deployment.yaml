@@ -43,6 +43,10 @@ spec:
               value: "8080"
             - name: ZARF_API_UI_ENABLED
               value: {{ .Values.ui.enabled | quote }}
+            {{- if .Values.ui.customColumns }}
+            - name: ZARF_API_UI_CUSTOM_COLUMNS
+              value: {{ .Values.ui.customColumns | toJson | quote }}
+            {{- end }}
             {{- with .Values.basePath }}
             - name: ZARF_API_BASE_PATH
               value: {{ . | quote }}

@@ -34,6 +34,16 @@ func New(cfg config.Config, st *store.Store, jm *jobs.Manager, logger *slog.Logg
 	return &Handlers{cfg: cfg, store: st, jobs: jm, logger: logger}
 }
 
+func (h *Handlers) uiConfig(w http.ResponseWriter, r *http.Request) {
+	var cols []map[string]any
+	if h.cfg.CustomColumns != "" {
+		if err := json.Unmarshal([]byte(h.cfg.CustomColumns), &cols); err != nil {
+			h.logger.Warn("failed to parse ZARF_API_UI_CUSTOM_COLUMNS", "error", err)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"customColumns": cols})
+}
+
 // Register wires all API routes into mux. When a base path is configured,
 // the API and UI are served under that prefix (for reverse proxies routing
 // on a path prefix); the health probes stay at the root because the kubelet
@@ -68,6 +78,7 @@ func (h *Handlers) Register(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET "+bp+"/api/v1/jobs", h.jobList)
 	mux.HandleFunc("GET "+bp+"/api/v1/jobs/{id}", h.jobGet)
+	mux.HandleFunc("GET "+bp+"/api/v1/ui-config", h.uiConfig)
 
 	if h.cfg.UIEnabled {
 		// The root and the bare base path redirect to the UI; the UI subtree

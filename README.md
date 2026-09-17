@@ -210,5 +210,6 @@ narrower must be tailored to your packages (`rbac.clusterAdmin=false` +
 | `ZARF_API_LOG_FORMAT` | `json` | `json`, `console`, `dev` |
 | `ZARF_API_PUBLIC_KEY_PATH` | — | Default cosign key for signature verification |
 | `ZARF_API_UI_ENABLED` | `true` | Serve the web UI at `/ui/` |
+| `ZARF_API_UI_CUSTOM_COLUMNS` | — | JSON array configuring extra columns in the Installed tab (e.g. `[{"header": "Col", "path": "connectStrings.my-col"}]`) |
 | `ZARF_API_BASE_PATH` | — | URL prefix for the API and UI (e.g. `/zarf-api`) when behind a path-routing reverse proxy; the proxy must forward the prefix unstripped. Probes stay at `/healthz` and `/readyz` |
 | `ZARF_API_MAX_UPLOAD_SESSIONS` | `16` | Concurrent chunked uploads |

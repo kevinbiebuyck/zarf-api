@@ -737,23 +737,38 @@ async function loadInstalled() {
       return;
     }
     const card = el("div", "card");
+    let customHeaders = "";
+    if (window.ZARF_UI_CUSTOM_COLUMNS) {
+      customHeaders = window.ZARF_UI_CUSTOM_COLUMNS.map(c => `<th>${esc(c.header)}</th>`).join("");
+    }
+
     const table = el("table");
     table.innerHTML = `<thead><tr>
-      <th>Package</th><th>Version</th><th>Components</th><th>Connectivity</th><th>Gen</th><th></th>
+      <th>Package</th><th>Version</th><th>Components</th><th>Connectivity</th><th>Gen</th>${customHeaders}<th></th>
     </tr></thead>`;
     const tbody = el("tbody");
     for (const d of deployments) {
-      if (d.package === "init") continue; // The init package cannot be managed via the API.
+      if (d.name === "init") continue; // The init package cannot be managed via the API.
       const tr = el("tr");
-      const comps = (d.components || [])
+      const comps = (d.deployedComponents || [])
         .map((c) => `<span class="badge ${c.status === "Succeeded" ? "ok" : "err"}">${esc(c.name)}</span>`)
         .join(" ");
+      
+      let customCols = "";
+      if (window.ZARF_UI_CUSTOM_COLUMNS) {
+        for (const col of window.ZARF_UI_CUSTOM_COLUMNS) {
+          const v = getNested(d, col.path);
+          customCols += `<td>${esc(v != null ? String(v) : "—")}</td>`;
+        }
+      }
+
       tr.insertAdjacentHTML("beforeend", `
-        <td class="mono" title="${esc(JSON.stringify(d, null, 2))}">${esc(d.package)}</td>
-        <td class="mono">${esc(d.version || "—")}</td>
+        <td class="mono" title="${esc(JSON.stringify(d, null, 2))}">${esc(d.name)}</td>
+        <td class="mono">${esc(d.data?.metadata?.version || "—")}</td>
         <td>${comps}</td>
-        <td>${esc(d.connectivity || "—")}</td>
+        <td>${esc(d.packageConnectivity || "—")}</td>
         <td>${d.generation ?? "—"}</td>
+        ${customCols}
         <td class="actions"></td>`);
       const actions = tr.lastElementChild;
 
@@ -764,11 +779,11 @@ async function loadInstalled() {
       const del = el("button", "btn small danger", "Delete");
       del.onclick = () => confirmModal(
         "Remove deployment",
-        `Remove ${d.package} from the cluster? All its components will be uninstalled.`,
+        `Remove ${d.name} from the cluster? All its components will be uninstalled.`,
         "Remove",
         async () => {
           try {
-            const job = await api("DELETE", `/deployments/${encodeURIComponent(d.package)}`);
+            const job = await api("DELETE", `/deployments/${encodeURIComponent(d.name)}`);
             toast(`Remove started (job ${job.id})`, "ok");
             switchToJobs();
           } catch (e) { toast(e.message, "err"); }
@@ -810,18 +825,25 @@ function definitionFromDeployment(full) {
   };
 }
 
+function getNested(obj, path) {
+  return path.split('.').reduce((o, i) => (o == null ? null : o[i]), obj);
+}
+
+function getDeployedVersion(d) { return d.data?.metadata?.version; }
+
 async function openEditModal(d) {
-  const storePkg = findStoreVersion(d.package, d.version);
+  const v = getDeployedVersion(d);
+  const storePkg = findStoreVersion(d.name, v);
   if (!storePkg) {
-    toast(`Version ${d.version} of ${d.package} is not in the local store — upload it to edit.`, "err");
+    toast(`Version ${v} of ${d.name} is not in the local store — upload it to edit.`, "err");
     return;
   }
   try {
-    const full = await api("GET", `/deployments/${encodeURIComponent(d.package)}`);
+    const full = await api("GET", `/deployments/${encodeURIComponent(d.name)}`);
     const definition = definitionFromDeployment(full);
     const deployedNames = (full.deployedComponents || []).map((c) => c.name);
     openDeployModal({
-      title: `Edit ${d.package} ${d.version || ""}`,
+      title: `Edit ${d.name} ${v || ""}`,
       storeId: storePkg.id,
       definition,
       preselectedComponents: deployedNames,
@@ -832,16 +854,17 @@ async function openEditModal(d) {
 }
 
 function openUpgradeModal(d) {
+  const v = getDeployedVersion(d);
   const candidates = storePackages
-    .filter((p) => p.name === d.package && p.version !== d.version)
+    .filter((p) => p.name === d.name && p.version !== v)
     .sort((a, b) => -cmpVersion(a.version, b.version));
   if (candidates.length === 0) {
-    toast(`No other versions of ${d.package} in the local store.`, "err");
+    toast(`No other versions of ${d.name} in the local store.`, "err");
     return;
   }
   const body = el("div");
   const f = el("div", "field");
-  f.append(el("label", "", `Upgrade ${d.package} (currently ${d.version || "unknown"}) to:`));
+  f.append(el("label", "", `Upgrade ${d.name} (currently ${v || "unknown"}) to:`));
   const sel = document.createElement("select");
   for (const p of candidates) {
     const opt = document.createElement("option");
@@ -857,11 +880,11 @@ function openUpgradeModal(d) {
     const storePkg = candidates.find((p) => p.id === sel.value);
     closeModal();
     try {
-      const full = await api("GET", `/deployments/${encodeURIComponent(d.package)}`);
+      const full = await api("GET", `/deployments/${encodeURIComponent(d.name)}`);
       const deployedNames = (full.deployedComponents || []).map((c) => c.name);
       const definition = await api("GET", `/packages/${encodeURIComponent(storePkg.id)}/definition`);
       openDeployModal({
-        title: `Upgrade ${d.package} → ${storePkg.version}`,
+        title: `Upgrade ${d.name} → ${storePkg.version}`,
         storeId: storePkg.id,
         definition,
         preselectedComponents: deployedNames,
@@ -872,7 +895,7 @@ function openUpgradeModal(d) {
   };
   const cancel = el("button", "btn", "Cancel");
   cancel.onclick = closeModal;
-  openModal("Upgrade " + d.package, body, [cancel, next]);
+  openModal("Upgrade " + d.name, body, [cancel, next]);
 }
 
 function openNewInstallModal() {
@@ -1014,6 +1037,7 @@ $("#job-logs-close").onclick = () => $("#job-logs").classList.add("hidden");
 setupUpload();
 applyRoute();
 checkUploadResume();
+api("GET", "/ui-config").then((c) => { window.ZARF_UI_CUSTOM_COLUMNS = c.customColumns; if (activeTab === "installed") loadInstalled(); }).catch(() => {});
 api("GET", "/version").then((v) => { $("#version").textContent = v.version; }).catch(() => {});
 setInterval(loadJobs, 3000);
 loadJobs();

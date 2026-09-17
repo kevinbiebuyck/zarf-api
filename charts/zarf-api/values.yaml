@@ -16,6 +16,11 @@ service:
 # at /ui/. Disable to expose only the JSON API.
 ui:
   enabled: true
+  # customColumns allows defining extra columns for the Installed tab.
+  # They read from the raw JSON state via dot-path (e.g. data.metadata.name).
+  # customColumns:
+  #   - header: "Registry"
+  #     path: "connectStrings.registry-domain"
 
 # basePath serves the API and UI under a URL prefix, for deployments behind
 # a reverse proxy / APIM that routes on a path prefix (the proxy must
