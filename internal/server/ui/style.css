@@ -222,11 +222,13 @@ td.actions .btn { margin-left: 6px; }
 .field input:focus, .field select:focus { outline: none; border-color: var(--accent); }
 .field .hint { font-size: 11px; color: var(--muted); margin-top: 3px; }
 .schema-group {
-  margin: 10px 0;
-  padding: 4px 0 4px 12px;
-  border-left: 2px solid var(--border);
+  margin: 14px 0;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 6px;
 }
-.schema-group-title { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+.schema-group-title { font-size: 13px; font-weight: 600; margin-bottom: 10px; color: var(--text); }
 
 .check-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
 .check-row input { accent-color: var(--accent); }
