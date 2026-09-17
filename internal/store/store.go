@@ -28,25 +28,25 @@ import (
 // Package describes one imported package tarball in the local store.
 type Package struct {
 	// ID is the canonical package file name (e.g. zarf-package-podinfo-amd64-1.0.0.tar.zst).
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Version     string    `json:"version,omitempty"`
-	Architecture string   `json:"architecture,omitempty"`
-	Kind        string    `json:"kind,omitempty"`
-	Description string    `json:"description,omitempty"`
-	YOLO        bool      `json:"yolo,omitempty"`
-	Components  []string  `json:"components,omitempty"`
-	Size        int64     `json:"size"`
-	SHASum256   string    `json:"sha256"`
-	ImportedAt  time.Time `json:"importedAt"`
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	Version      string    `json:"version,omitempty"`
+	Architecture string    `json:"architecture,omitempty"`
+	Kind         string    `json:"kind,omitempty"`
+	Description  string    `json:"description,omitempty"`
+	YOLO         bool      `json:"yolo,omitempty"`
+	Components   []string  `json:"components,omitempty"`
+	Size         int64     `json:"size"`
+	SHASum256    string    `json:"sha256"`
+	ImportedAt   time.Time `json:"importedAt"`
 }
 
 // Upload is an in-flight chunked upload session.
 type Upload struct {
-	ID           string           `json:"id"`
-	FileNameHint string           `json:"fileNameHint,omitempty"`
-	SHASum256    string           `json:"sha256,omitempty"`
-	CreatedAt    time.Time        `json:"createdAt"`
+	ID           string    `json:"id"`
+	FileNameHint string    `json:"fileNameHint,omitempty"`
+	SHASum256    string    `json:"sha256,omitempty"`
+	CreatedAt    time.Time `json:"createdAt"`
 	// Chunks maps chunk index to chunk size in bytes.
 	Chunks map[int]int64 `json:"chunks"`
 }
@@ -261,11 +261,11 @@ func (s *Store) finalizeImport(ctx context.Context, tmpPath string, h hash, file
 // --- chunked uploads ---
 
 type sessionFile struct {
-	ID           string         `json:"id"`
-	FileNameHint string         `json:"fileNameHint,omitempty"`
-	SHASum256    string         `json:"sha256,omitempty"`
-	CreatedAt    time.Time      `json:"createdAt"`
-	Chunks       map[int]int64  `json:"chunks"`
+	ID           string        `json:"id"`
+	FileNameHint string        `json:"fileNameHint,omitempty"`
+	SHASum256    string        `json:"sha256,omitempty"`
+	CreatedAt    time.Time     `json:"createdAt"`
+	Chunks       map[int]int64 `json:"chunks"`
 }
 
 // CreateUpload starts a new chunked upload session.

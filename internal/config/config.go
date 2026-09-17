@@ -32,6 +32,9 @@ type Config struct {
 	// package signatures. Can be overridden per request.
 	PublicKeyPath string
 
+	// UIEnabled serves the embedded web UI at /ui/ when true.
+	UIEnabled bool
+
 	// MaxUploadSessions caps concurrent chunked-upload sessions.
 	MaxUploadSessions int
 	// MaxJobs caps how many finished jobs are retained in memory.
@@ -57,6 +60,7 @@ func FromEnv() (Config, error) {
 		DataDir:           envOr("ZARF_API_DATA_DIR", "./data"),
 		TempDir:           os.Getenv("ZARF_API_TEMP_DIR"),
 		PublicKeyPath:     os.Getenv("ZARF_API_PUBLIC_KEY_PATH"),
+		UIEnabled:         os.Getenv("ZARF_API_UI_ENABLED") != "false",
 		MaxUploadSessions: 16,
 		MaxJobs:           100,
 		JobLogLines:       2000,

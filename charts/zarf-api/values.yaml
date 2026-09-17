@@ -12,6 +12,11 @@ service:
   type: ClusterIP
   port: 8080
 
+# ui serves the embedded web UI (package upload/manage, deployments, jobs)
+# at /ui/. Disable to expose only the JSON API.
+ui:
+  enabled: true
+
 # The API is meant to run behind an APIM/gateway that enforces authn/authz.
 # The server itself performs no authentication.
 ingress:

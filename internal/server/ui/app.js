@@ -1,0 +1,666 @@
+/* zarf-api UI — dependency-free SPA talking to /api/v1. */
+"use strict";
+
+const API = "/api/v1";
+
+// ---------- tiny helpers ----------
+
+const $ = (sel) => document.querySelector(sel);
+const el = (tag, cls, text) => {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+};
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+async function api(method, path, body) {
+  const opts = { method, headers: {} };
+  if (body !== undefined) {
+    opts.headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(API + path, opts);
+  if (res.status === 204) return null;
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = { error: text }; }
+  if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`);
+  return data;
+}
+
+function toast(msg, kind = "") {
+  const t = el("div", `toast ${kind}`);
+  t.append(el("div", "msg", msg));
+  $("#toasts").append(t);
+  setTimeout(() => t.remove(), kind === "err" ? 8000 : 4000);
+}
+
+function fmtBytes(n) {
+  if (n < 1024) return n + " B";
+  const units = ["KiB", "MiB", "GiB"];
+  let v = n;
+  let u = -1;
+  do { v /= 1024; u++; } while (v >= 1024 && u < units.length - 1);
+  return v.toFixed(1) + " " + units[u];
+}
+
+function fmtTime(iso) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString();
+}
+
+// Compare version strings: numeric-aware, semver-ish. Returns <0, 0, >0.
+function cmpVersion(a, b) {
+  const pa = String(a || "").split(/[.\-+]/).map((x) => (/^\d+$/.test(x) ? Number(x) : x));
+  const pb = String(b || "").split(/[.\-+]/).map((x) => (/^\d+$/.test(x) ? Number(x) : x));
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] ?? 0, y = pb[i] ?? 0;
+    if (x === y) continue;
+    if (typeof x === "number" && typeof y === "number") return x - y;
+    return String(x).localeCompare(String(y));
+  }
+  return 0;
+}
+
+// ---------- modal ----------
+
+function openModal(title, bodyNode, buttons) {
+  $("#modal-title").textContent = title;
+  const body = $("#modal-body");
+  body.innerHTML = "";
+  body.append(bodyNode);
+  const foot = $("#modal-foot");
+  foot.innerHTML = "";
+  for (const b of buttons) foot.append(b);
+  $("#modal-backdrop").classList.remove("hidden");
+}
+function closeModal() { $("#modal-backdrop").classList.add("hidden"); }
+
+function confirmModal(title, message, confirmLabel, onConfirm) {
+  const body = el("div");
+  body.append(el("p", "", message));
+  const ok = el("button", "btn danger", confirmLabel);
+  ok.onclick = async () => { closeModal(); await onConfirm(); };
+  const cancel = el("button", "btn", "Cancel");
+  cancel.onclick = closeModal;
+  openModal(title, body, [cancel, ok]);
+}
+
+// ---------- tabs ----------
+
+let activeTab = "packages";
+document.querySelectorAll(".tab").forEach((btn) => {
+  btn.onclick = () => {
+    activeTab = btn.dataset.tab;
+    document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b === btn));
+    document.querySelectorAll(".tab-panel").forEach((p) => p.classList.add("hidden"));
+    $("#tab-" + activeTab).classList.remove("hidden");
+    refreshActive();
+  };
+});
+
+function refreshActive() {
+  if (activeTab === "packages") loadPackages();
+  if (activeTab === "installed") loadInstalled();
+  if (activeTab === "jobs") loadJobs();
+}
+
+// ---------- packages ----------
+
+function groupByName(packages) {
+  const groups = new Map();
+  for (const p of packages) {
+    if (!groups.has(p.name)) groups.set(p.name, []);
+    groups.get(p.name).push(p);
+  }
+  for (const list of groups.values()) list.sort((a, b) => -cmpVersion(a.version, b.version));
+  return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+}
+
+async function loadPackages() {
+  const root = $("#packages-list");
+  try {
+    const data = await api("GET", "/packages");
+    const packages = data.packages || [];
+    root.innerHTML = "";
+    if (packages.length === 0) {
+      root.append(el("div", "empty", "No packages imported yet — upload one above."));
+      return;
+    }
+    for (const [name, versions] of groupByName(packages)) {
+      const card = el("div", "card");
+      const head = el("div", "app-head");
+      head.append(el("h3", "", name));
+      head.append(el("span", "muted", `${versions.length} version${versions.length > 1 ? "s" : ""}`));
+      if (versions[0].description) head.append(el("span", "muted", "— " + versions[0].description));
+      card.append(head);
+
+      const table = el("table");
+      table.innerHTML = `<thead><tr>
+        <th>Version</th><th>Arch</th><th>Size</th><th>Imported</th><th></th>
+      </tr></thead>`;
+      const tbody = el("tbody");
+      for (const p of versions) {
+        const tr = el("tr");
+        tr.insertAdjacentHTML("beforeend", `
+          <td class="mono">${esc(p.version || "—")}</td>
+          <td>${esc(p.architecture || "—")}</td>
+          <td>${fmtBytes(p.size)}</td>
+          <td>${fmtTime(p.importedAt)}</td>
+          <td class="actions"></td>`);
+        const actions = tr.lastElementChild;
+
+        const install = el("button", "btn small primary", "Install");
+        install.onclick = () => openInstallModal(p);
+        const del = el("button", "btn small", "Delete");
+        del.onclick = () => confirmModal(
+          "Delete package",
+          `Delete ${p.id} from the local store? This does not uninstall anything from the cluster.`,
+          "Delete",
+          async () => {
+            try {
+              await api("DELETE", "/packages/" + encodeURIComponent(p.id));
+              toast(`Deleted ${p.id}`, "ok");
+              loadPackages();
+            } catch (e) { toast(e.message, "err"); }
+          });
+        actions.append(install, del);
+        tbody.append(tr);
+      }
+      table.append(tbody);
+      card.append(table);
+      root.append(card);
+    }
+  } catch (e) {
+    root.innerHTML = `<div class="empty">Failed to load packages: ${esc(e.message)}</div>`;
+  }
+}
+
+// ---------- chunked upload ----------
+
+const CHUNK_SIZE = 8 * 1024 * 1024;
+
+async function uploadPackage(file) {
+  const prog = $("#upload-progress");
+  const bar = prog.querySelector(".bar");
+  const pct = prog.querySelector(".pct");
+  prog.classList.remove("hidden");
+  const setProgress = (f, label) => {
+    bar.style.width = (f * 100).toFixed(1) + "%";
+    pct.textContent = label || (f * 100).toFixed(0) + "%";
+  };
+  try {
+    setProgress(0, "starting upload…");
+    const session = await api("POST", "/uploads", { fileName: file.name });
+    const chunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
+    for (let i = 0; i < chunks; i++) {
+      const blob = file.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+      const res = await fetch(`${API}/uploads/${session.id}/chunks/${i}`, { method: "PUT", body: blob });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `chunk ${i} failed: HTTP ${res.status}`);
+      }
+      setProgress(((i + 1) / chunks) * 0.95);
+    }
+    setProgress(0.97, "validating with zarf…");
+    const pkg = await api("POST", `/uploads/${session.id}/complete`);
+    toast(`Imported ${pkg.id}`, "ok");
+    loadPackages();
+  } catch (e) {
+    toast("Upload failed: " + e.message, "err");
+  } finally {
+    prog.classList.add("hidden");
+  }
+}
+
+function setupUpload() {
+  const dz = $("#dropzone");
+  const input = $("#file-input");
+  $("#browse-btn").onclick = () => input.click();
+  input.onchange = () => { if (input.files[0]) uploadPackage(input.files[0]); input.value = ""; };
+  dz.ondragover = (e) => { e.preventDefault(); dz.classList.add("dragover"); };
+  dz.ondragleave = () => dz.classList.remove("dragover");
+  dz.ondrop = (e) => {
+    e.preventDefault();
+    dz.classList.remove("dragover");
+    if (e.dataTransfer.files[0]) uploadPackage(e.dataTransfer.files[0]);
+  };
+}
+
+// ---------- deploy modal (install / edit / upgrade) ----------
+
+// definition: DefinitionInfo from /packages/{id}/definition (or reconstructed
+// from a deployment). preselectedComponents: names to check. prefillVariables:
+// {NAME: value} overrides.
+function openDeployModal(opts) {
+  const { title, storeId, definition, preselectedComponents, prefillVariables } = opts;
+  const body = el("div");
+
+  // --- components ---
+  const optional = (definition.components || []).filter((c) => c.optional);
+  const required = (definition.components || []).filter((c) => !c.optional);
+  if (definition.components && definition.components.length) {
+    const f = el("div", "field");
+    f.append(el("label", "", "Components"));
+    for (const c of required) {
+      const row = el("div", "check-row");
+      row.innerHTML = `<input type="checkbox" checked disabled>
+        <span>${esc(c.name)}</span><span class="desc">${esc(c.description || "required")}</span>`;
+      f.append(row);
+    }
+    const groups = new Map();
+    for (const c of optional) {
+      const key = c.group || "";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(c);
+    }
+    for (const [group, comps] of groups) {
+      if (group) f.append(el("div", "muted", `group: ${group} (pick at most one)`));
+      for (const c of comps) {
+        const row = el("div", "check-row");
+        const input = document.createElement("input");
+        input.type = group ? "radio" : "checkbox";
+        input.name = group ? "grp-" + group : "";
+        input.value = c.name;
+        input.dataset.component = c.name;
+        const pre = preselectedComponents
+          ? preselectedComponents.includes(c.name)
+          : c.default;
+        input.checked = !!pre;
+        row.append(input, el("span", "", c.name), el("span", "desc", c.description || ""));
+        f.append(row);
+      }
+    }
+    body.append(f);
+  }
+
+  // --- variables ---
+  if (definition.variables && definition.variables.length) {
+    const f = el("div", "field");
+    f.append(el("label", "", "Variables"));
+    const grid = el("div", "var-grid");
+    for (const v of definition.variables) {
+      const wrap = el("div");
+      const lab = el("label", "", v.name + (v.description ? ` — ${v.description}` : ""));
+      const input = document.createElement("input");
+      input.type = v.sensitive ? "password" : "text";
+      input.dataset.variable = v.name;
+      input.placeholder = v.default ? `default: ${v.default}` : "";
+      const preset = prefillVariables && prefillVariables[v.name];
+      input.value = preset !== undefined ? preset : (v.default || "");
+      wrap.append(lab, input);
+      grid.append(wrap);
+    }
+    f.append(grid);
+    body.append(f);
+  }
+
+  // --- advanced ---
+  const adv = el("details", "advanced");
+  adv.innerHTML = `<summary>Advanced options</summary>`;
+  const mkText = (labelText, name, placeholder) => {
+    const f = el("div", "field");
+    f.append(el("label", "", labelText));
+    const input = document.createElement("input");
+    input.type = "text";
+    input.dataset.opt = name;
+    if (placeholder) input.placeholder = placeholder;
+    f.append(input);
+    adv.append(f);
+  };
+  const mkCheck = (labelText, name, hint) => {
+    const f = el("div", "check-row");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.dataset.opt = name;
+    f.append(input, el("span", "", labelText));
+    if (hint) f.append(el("span", "desc", hint));
+    adv.append(f);
+  };
+  mkText("Namespace override", "namespaceOverride", "deploy all charts into this namespace");
+  mkText("Timeout", "timeout", "e.g. 15m (zarf default when empty)");
+  mkCheck("Take ownership of existing resources", "takeOwnership");
+  mkCheck("Connected deploy (no image/repo mirroring)", "connected", "for clusters without zarf init");
+  mkCheck("Force conflicts (server-side apply)", "forceConflicts");
+  mkCheck("Skip version check", "skipVersionCheck");
+  body.append(adv);
+
+  const submit = el("button", "btn primary", opts.submitLabel || "Deploy");
+  submit.onclick = async () => {
+    const components = [...body.querySelectorAll("[data-component]")]
+      .filter((i) => i.checked).map((i) => i.dataset.component);
+    const setVariables = {};
+    body.querySelectorAll("[data-variable]").forEach((i) => {
+      if (i.value !== "") setVariables[i.dataset.variable] = i.value;
+    });
+    const req = { setVariables };
+    if (components.length) req.components = components.join(",");
+    for (const i of body.querySelectorAll("[data-opt]")) {
+      const k = i.dataset.opt;
+      if (i.type === "checkbox") { if (i.checked) req[k] = true; }
+      else if (i.value.trim() !== "") req[k] = i.value.trim();
+    }
+    submit.disabled = true;
+    try {
+      const job = await api("POST", `/packages/${encodeURIComponent(storeId)}/deploy`, req);
+      closeModal();
+      toast(`${opts.actionLabel || "Deploy"} started (job ${job.id})`, "ok");
+      switchToJobs();
+    } catch (e) {
+      toast(e.message, "err");
+      submit.disabled = false;
+    }
+  };
+  const cancel = el("button", "btn", "Cancel");
+  cancel.onclick = closeModal;
+  openModal(title, body, [cancel, submit]);
+}
+
+async function openInstallModal(pkg) {
+  try {
+    const definition = await api("GET", `/packages/${encodeURIComponent(pkg.id)}/definition`);
+    openDeployModal({
+      title: `Install ${pkg.name} ${pkg.version || ""}`,
+      storeId: pkg.id,
+      definition,
+      actionLabel: "Deploy",
+    });
+  } catch (e) { toast("Unable to load package definition: " + e.message, "err"); }
+}
+
+// ---------- installed ----------
+
+let storePackages = [];
+
+async function loadInstalled() {
+  const root = $("#installed-list");
+  try {
+    const [deps, pkgs] = await Promise.all([
+      api("GET", "/deployments"),
+      api("GET", "/packages"),
+    ]);
+    storePackages = pkgs.packages || [];
+    const deployments = deps.deployments || [];
+    root.innerHTML = "";
+    if (deployments.length === 0) {
+      root.append(el("div", "empty", "Nothing deployed yet."));
+      return;
+    }
+    const card = el("div", "card");
+    const table = el("table");
+    table.innerHTML = `<thead><tr>
+      <th>Package</th><th>Version</th><th>Components</th><th>Connectivity</th><th>Gen</th><th></th>
+    </tr></thead>`;
+    const tbody = el("tbody");
+    for (const d of deployments) {
+      const tr = el("tr");
+      const comps = (d.components || [])
+        .map((c) => `<span class="badge ${c.status === "Succeeded" ? "ok" : "err"}">${esc(c.name)}</span>`)
+        .join(" ");
+      tr.insertAdjacentHTML("beforeend", `
+        <td class="mono">${esc(d.package)}</td>
+        <td class="mono">${esc(d.version || "—")}</td>
+        <td>${comps}</td>
+        <td>${esc(d.connectivity || "—")}</td>
+        <td>${d.generation ?? "—"}</td>
+        <td class="actions"></td>`);
+      const actions = tr.lastElementChild;
+
+      const edit = el("button", "btn small", "Edit");
+      edit.onclick = () => openEditModal(d);
+      const upgrade = el("button", "btn small", "Upgrade");
+      upgrade.onclick = () => openUpgradeModal(d);
+      const del = el("button", "btn small danger", "Delete");
+      del.onclick = () => confirmModal(
+        "Remove deployment",
+        `Remove ${d.package} from the cluster? All its components will be uninstalled.`,
+        "Remove",
+        async () => {
+          try {
+            const job = await api("DELETE", `/deployments/${encodeURIComponent(d.package)}`);
+            toast(`Remove started (job ${job.id})`, "ok");
+            switchToJobs();
+          } catch (e) { toast(e.message, "err"); }
+        });
+      actions.append(edit, upgrade, del);
+      tbody.append(tr);
+    }
+    table.append(tbody);
+    card.append(table);
+    root.append(card);
+  } catch (e) {
+    root.innerHTML = `<div class="empty">Failed to load deployments: ${esc(e.message)}</div>`;
+  }
+}
+
+// Find a store package matching a deployment's name+version.
+function findStoreVersion(name, version) {
+  return storePackages.find((p) => p.name === name && p.version === version);
+}
+
+// Reconstruct a DefinitionInfo from a deployed package's stored definition.
+function definitionFromDeployment(full) {
+  const data = full.data || {};
+  return {
+    name: data.metadata?.name,
+    version: data.metadata?.version,
+    variables: (data.variables || []).map((v) => ({
+      name: v.name, default: v.default, description: v.description,
+      sensitive: v.sensitive, prompt: v.prompt,
+    })),
+    components: (data.components || []).map((c) => ({
+      name: c.name, description: c.description,
+      optional: c.required !== true,
+      default: c.default, group: c.group,
+    })),
+  };
+}
+
+async function openEditModal(d) {
+  const storePkg = findStoreVersion(d.package, d.version);
+  if (!storePkg) {
+    toast(`Version ${d.version} of ${d.package} is not in the local store — upload it to edit.`, "err");
+    return;
+  }
+  try {
+    const full = await api("GET", `/deployments/${encodeURIComponent(d.package)}`);
+    const definition = definitionFromDeployment(full);
+    const deployedNames = (full.deployedComponents || []).map((c) => c.name);
+    openDeployModal({
+      title: `Edit ${d.package} ${d.version || ""}`,
+      storeId: storePkg.id,
+      definition,
+      preselectedComponents: deployedNames,
+      submitLabel: "Apply",
+      actionLabel: "Redeploy",
+    });
+  } catch (e) { toast(e.message, "err"); }
+}
+
+function openUpgradeModal(d) {
+  const candidates = storePackages
+    .filter((p) => p.name === d.package && p.version !== d.version)
+    .sort((a, b) => -cmpVersion(a.version, b.version));
+  if (candidates.length === 0) {
+    toast(`No other versions of ${d.package} in the local store.`, "err");
+    return;
+  }
+  const body = el("div");
+  const f = el("div", "field");
+  f.append(el("label", "", `Upgrade ${d.package} (currently ${d.version || "unknown"}) to:`));
+  const sel = document.createElement("select");
+  for (const p of candidates) {
+    const opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = `${p.version} (${fmtBytes(p.size)})`;
+    sel.append(opt);
+  }
+  f.append(sel);
+  body.append(f);
+
+  const next = el("button", "btn primary", "Continue");
+  next.onclick = async () => {
+    const storePkg = candidates.find((p) => p.id === sel.value);
+    closeModal();
+    try {
+      const full = await api("GET", `/deployments/${encodeURIComponent(d.package)}`);
+      const deployedNames = (full.deployedComponents || []).map((c) => c.name);
+      const definition = await api("GET", `/packages/${encodeURIComponent(storePkg.id)}/definition`);
+      openDeployModal({
+        title: `Upgrade ${d.package} → ${storePkg.version}`,
+        storeId: storePkg.id,
+        definition,
+        preselectedComponents: deployedNames,
+        submitLabel: "Upgrade",
+        actionLabel: "Upgrade",
+      });
+    } catch (e) { toast(e.message, "err"); }
+  };
+  const cancel = el("button", "btn", "Cancel");
+  cancel.onclick = closeModal;
+  openModal("Upgrade " + d.package, body, [cancel, next]);
+}
+
+function openNewInstallModal() {
+  const groups = groupByName(storePackages);
+  if (groups.length === 0) {
+    toast("No packages in the store — upload one first.", "err");
+    return;
+  }
+  const body = el("div");
+  const f = el("div", "field");
+  f.append(el("label", "", "Package"));
+  const sel = document.createElement("select");
+  for (const [name, versions] of groups) {
+    for (const p of versions) {
+      const opt = document.createElement("option");
+      opt.value = p.id;
+      opt.textContent = `${name} ${p.version || ""}`.trim();
+      sel.append(opt);
+    }
+  }
+  f.append(sel);
+  body.append(f);
+  const next = el("button", "btn primary", "Continue");
+  next.onclick = () => {
+    const pkg = storePackages.find((p) => p.id === sel.value);
+    closeModal();
+    openInstallModal(pkg);
+  };
+  const cancel = el("button", "btn", "Cancel");
+  cancel.onclick = closeModal;
+  openModal("New installation", body, [cancel, next]);
+}
+
+// ---------- jobs ----------
+
+let lastJobStatus = new Map();
+
+async function loadJobs() {
+  try {
+    const data = await api("GET", "/jobs");
+    const jobs = (data.jobs || []).slice().reverse(); // newest first
+    renderJobs(jobs);
+    updateJobsBadge(jobs);
+    // Detect transitions to terminal states.
+    for (const j of jobs) {
+      const prev = lastJobStatus.get(j.id);
+      if (prev && prev !== j.status) {
+        if (j.status === "succeeded") toast(`${j.kind} ${j.package} succeeded`, "ok");
+        if (j.status === "failed") toast(`${j.kind} ${j.package} failed: ${j.error || ""}`, "err");
+        loadInstalledIfVisible();
+      }
+      lastJobStatus.set(j.id, j.status);
+    }
+  } catch { /* jobs endpoint unreachable — ignore during polling */ }
+}
+
+function loadInstalledIfVisible() {
+  if (activeTab === "installed") loadInstalled();
+}
+
+function renderJobs(jobs) {
+  const root = $("#jobs-list");
+  root.innerHTML = "";
+  if (jobs.length === 0) {
+    root.append(el("div", "empty", "No jobs yet."));
+    return;
+  }
+  const card = el("div", "card");
+  const table = el("table");
+  table.innerHTML = `<thead><tr>
+    <th>Kind</th><th>Package</th><th>Status</th><th>Started</th><th>Duration</th><th></th>
+  </tr></thead>`;
+  const tbody = el("tbody");
+  for (const j of jobs) {
+    const tr = el("tr");
+    const cls = j.status === "succeeded" ? "ok" : j.status === "failed" ? "err" : "run";
+    let dur = "—";
+    if (j.startedAt) {
+      const end = j.finishedAt ? new Date(j.finishedAt) : new Date();
+      dur = ((end - new Date(j.startedAt)) / 1000).toFixed(1) + "s";
+    }
+    tr.insertAdjacentHTML("beforeend", `
+      <td>${esc(j.kind)}</td>
+      <td class="mono">${esc(j.package)}</td>
+      <td><span class="badge ${cls}">${esc(j.status)}</span></td>
+      <td>${fmtTime(j.startedAt)}</td>
+      <td>${dur}</td>
+      <td class="actions"></td>`);
+    const logs = el("button", "btn small", "Logs");
+    logs.onclick = () => showJobLogs(j);
+    tr.lastElementChild.append(logs);
+    tbody.append(tr);
+  }
+  table.append(tbody);
+  card.append(table);
+  root.append(card);
+}
+
+async function showJobLogs(j) {
+  $("#job-logs-title").textContent = `${j.kind} ${j.package} (${j.id})`;
+  $("#job-logs").classList.remove("hidden");
+  const render = (data) => {
+    const body = $("#job-logs-body");
+    body.innerHTML = "";
+    for (const line of data.logs || []) {
+      const span = el("span", "lvl-" + line.level, `[${line.level}] ${line.message}`);
+      if (line.attrs && Object.keys(line.attrs).length) {
+        span.textContent += " " + Object.entries(line.attrs).map(([k, v]) => `${k}=${v}`).join(" ");
+      }
+      body.append(span, "\n");
+    }
+    if (data.job && data.job.error) body.append(el("span", "lvl-ERROR", "error: " + data.job.error));
+  };
+  try {
+    render(await api("GET", `/jobs/${j.id}?tail=500`));
+  } catch (e) { toast(e.message, "err"); }
+}
+
+function updateJobsBadge(jobs) {
+  const running = jobs.filter((j) => j.status === "running" || j.status === "pending").length;
+  const badge = $("#jobs-badge");
+  badge.classList.toggle("hidden", running === 0);
+  badge.classList.add("count");
+  badge.textContent = running || "";
+}
+
+function switchToJobs() {
+  document.querySelector('.tab[data-tab="jobs"]').click();
+}
+
+// ---------- boot ----------
+
+$("#modal-close").onclick = closeModal;
+$("#modal-backdrop").onclick = (e) => { if (e.target.id === "modal-backdrop") closeModal(); };
+$("#new-install-btn").onclick = openNewInstallModal;
+$("#refresh-installed-btn").onclick = loadInstalled;
+$("#job-logs-close").onclick = () => $("#job-logs").classList.add("hidden");
+
+setupUpload();
+loadPackages();
+api("GET", "/version").then((v) => { $("#version").textContent = v.version; }).catch(() => {});
+setInterval(loadJobs, 3000);
+loadJobs();

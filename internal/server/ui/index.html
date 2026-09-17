@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>zarf-api</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📦</text></svg>">
+</head>
+<body>
+  <header>
+    <div class="brand">📦 zarf-api <span id="version" class="version"></span></div>
+    <nav>
+      <button class="tab active" data-tab="packages">Packages</button>
+      <button class="tab" data-tab="installed">Installed</button>
+      <button class="tab" data-tab="jobs">Jobs <span id="jobs-badge" class="badge hidden"></span></button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="tab-packages" class="tab-panel">
+      <div class="card upload-card" id="dropzone">
+        <input type="file" id="file-input" accept=".zst,.tar" hidden>
+        <p>Drop a <code>.tar.zst</code> package here or
+           <button class="btn" id="browse-btn">browse…</button></p>
+        <p class="muted">Large packages are uploaded in chunks and verified with zarf on completion.</p>
+        <div id="upload-progress" class="progress hidden"><div class="bar"></div><span class="pct"></span></div>
+      </div>
+      <div id="packages-list"></div>
+    </section>
+
+    <section id="tab-installed" class="tab-panel hidden">
+      <div class="toolbar">
+        <button class="btn primary" id="new-install-btn">+ New installation</button>
+        <button class="btn" id="refresh-installed-btn">↻ Refresh</button>
+      </div>
+      <div id="installed-list"></div>
+    </section>
+
+    <section id="tab-jobs" class="tab-panel hidden">
+      <div id="jobs-list"></div>
+      <div id="job-logs" class="hidden">
+        <div class="toolbar">
+          <h3 id="job-logs-title"></h3>
+          <button class="btn" id="job-logs-close">Close</button>
+        </div>
+        <pre id="job-logs-body" class="logs"></pre>
+      </div>
+    </section>
+  </main>
+
+  <div id="modal-backdrop" class="modal-backdrop hidden">
+    <div class="modal" role="dialog">
+      <div class="modal-head">
+        <h3 id="modal-title"></h3>
+        <button class="btn icon" id="modal-close">✕</button>
+      </div>
+      <div id="modal-body" class="modal-body"></div>
+      <div class="modal-foot" id="modal-foot"></div>
+    </div>
+  </div>
+
+  <div id="toasts"></div>
+  <script src="app.js"></script>
+</body>
+</html>

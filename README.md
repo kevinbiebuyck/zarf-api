@@ -24,12 +24,27 @@ Upgrading zarf = `git submodule update --remote zarf && go mod tidy && rebuild`.
 The Go module uses a `replace github.com/zarf-dev/zarf => ./zarf` directive, so
 builds always compile against the pinned submodule commit.
 
+## Web UI
+
+A simple embedded web UI is served at `/ui/` (redirect from `/`) when
+`ZARF_API_UI_ENABLED=true` (default; Helm: `ui.enabled`). It supports:
+
+- importing packages (chunked upload with progress) and deleting them
+- browsing the local store grouped by application with all loaded versions
+- listing deployed packages, and for each: **Edit** (redeploy with changed
+  variables/components), **Upgrade** (to another version present in the
+  store), **Delete**, plus **New installation** from any stored package
+- watching deploy/remove jobs with their captured zarf logs
+
+Disable it with `ZARF_API_UI_ENABLED=false` to expose only the JSON API.
+
 ## Security
 
 **This API performs no authentication or authorization.** It is designed to
 sit behind an APIM / API gateway that authenticates callers and authorizes
 each operation. Anyone who can reach the service port can deploy arbitrary
-packages into the cluster.
+packages into the cluster. The same applies to the web UI — if you expose it,
+protect it.
 
 ## API overview
 
@@ -42,6 +57,7 @@ Base path: `/api/v1`
 | `POST /api/v1/packages` | One-shot import. Body = raw `.tar.zst`/`.tar`. Query: `fileName`, `shasum`, `validate=false`, `verify=never\|if-possible\|always` |
 | `GET /api/v1/packages` | List imported packages |
 | `GET /api/v1/packages/{id}` | Package metadata |
+| `GET /api/v1/packages/{id}/definition` | Package definition (variables, components) — `zarf package inspect definition` |
 | `DELETE /api/v1/packages/{id}` | Delete from the local store |
 | `POST /api/v1/packages/{id}/deploy` | Deploy into the cluster (async job, `?wait=true` for sync) |
 
@@ -140,4 +156,5 @@ narrower must be tailored to your packages (`rbac.clusterAdmin=false` +
 | `ZARF_API_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `ZARF_API_LOG_FORMAT` | `json` | `json`, `console`, `dev` |
 | `ZARF_API_PUBLIC_KEY_PATH` | — | Default cosign key for signature verification |
+| `ZARF_API_UI_ENABLED` | `true` | Serve the web UI at `/ui/` |
 | `ZARF_API_MAX_UPLOAD_SESSIONS` | `16` | Concurrent chunked uploads |

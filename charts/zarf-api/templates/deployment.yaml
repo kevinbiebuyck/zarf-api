@@ -41,6 +41,8 @@ spec:
               value: /data
             - name: ZARF_API_PORT
               value: "8080"
+            - name: ZARF_API_UI_ENABLED
+              value: {{ .Values.ui.enabled | quote }}
             {{- range $k, $v := .Values.env }}
             - name: {{ $k }}
               value: {{ $v | quote }}

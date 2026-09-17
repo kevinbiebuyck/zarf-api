@@ -12,6 +12,7 @@ import (
 
 	"github.com/kevinbiebuyck/zarf-api/internal/config"
 	"github.com/kevinbiebuyck/zarf-api/internal/jobs"
+	"github.com/kevinbiebuyck/zarf-api/internal/server/ui"
 	"github.com/kevinbiebuyck/zarf-api/internal/store"
 )
 
@@ -42,6 +43,7 @@ func (h *Handlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/packages", h.packageImport)
 	mux.HandleFunc("GET /api/v1/packages", h.packageList)
 	mux.HandleFunc("GET /api/v1/packages/{id}", h.packageGet)
+	mux.HandleFunc("GET /api/v1/packages/{id}/definition", h.packageDefinition)
 	mux.HandleFunc("DELETE /api/v1/packages/{id}", h.packageDelete)
 	mux.HandleFunc("POST /api/v1/packages/{id}/deploy", h.packageDeploy)
 
@@ -58,6 +60,15 @@ func (h *Handlers) Register(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /api/v1/jobs", h.jobList)
 	mux.HandleFunc("GET /api/v1/jobs/{id}", h.jobGet)
+
+	if h.cfg.UIEnabled {
+		// Exact root redirects to the UI; the UI subtree serves the embedded
+		// single-page app.
+		mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/ui/", http.StatusFound)
+		})
+		mux.Handle("GET /ui/", ui.Handler())
+	}
 }
 
 // --- shared helpers ---

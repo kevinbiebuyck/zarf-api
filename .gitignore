@@ -1,3 +1,8 @@
 data/
 dist/
 *.exe
+
+# Local end-to-end test artifacts
+e2e-data/
+e2e-out/
+e2e-src/

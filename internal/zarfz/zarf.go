@@ -90,7 +90,7 @@ type DeployRequest struct {
 // RemoveRequest mirrors the flag set of `zarf package remove`.
 type RemoveRequest struct {
 	// Components limits removal to a comma-separated list of components.
-	Components       string `json:"components,omitempty"`
+	Components        string `json:"components,omitempty"`
 	NamespaceOverride string `json:"namespaceOverride,omitempty"`
 	// Timeout for helm operations. Zero uses zarf's default.
 	Timeout Duration `json:"timeout,omitempty"`
@@ -276,6 +276,88 @@ func GetDeployed(ctx context.Context, name, namespaceOverride string) (*state.De
 func Ping(ctx context.Context) error {
 	_, err := cluster.New(ctx)
 	return err
+}
+
+// VariableInfo describes one deploy-time variable of a package.
+type VariableInfo struct {
+	Name        string `json:"name"`
+	Default     string `json:"default,omitempty"`
+	Description string `json:"description,omitempty"`
+	Sensitive   bool   `json:"sensitive,omitempty"`
+	Prompt      bool   `json:"prompt,omitempty"`
+}
+
+// ComponentInfo describes one component of a package for selection purposes.
+type ComponentInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	// Optional components can be toggled at deploy time; required ones always
+	// deploy. Mirrors zarf semantics (required: true => not optional).
+	Optional bool `json:"optional"`
+	// Default is the default selection state for optional components.
+	Default bool `json:"default,omitempty"`
+	// Group links mutually exclusive components (deploy picks one per group).
+	Group string `json:"group,omitempty"`
+}
+
+// DefinitionInfo is the UI/API-facing view of a package definition.
+type DefinitionInfo struct {
+	Name         string          `json:"name"`
+	Version      string          `json:"version,omitempty"`
+	Description  string          `json:"description,omitempty"`
+	Architecture string          `json:"architecture,omitempty"`
+	Kind         string          `json:"kind,omitempty"`
+	Variables    []VariableInfo  `json:"variables"`
+	Components   []ComponentInfo `json:"components"`
+}
+
+// GetDefinition loads a package source and returns its definition, mirroring
+// `zarf package inspect definition`. Only used for display/form prefill.
+func GetDefinition(ctx context.Context, source string) (*DefinitionInfo, error) {
+	cachePath, err := config.GetAbsCachePath()
+	if err != nil {
+		return nil, err
+	}
+	loadOpts := packager.LoadOptions{
+		VerificationStrategy: layout.VerifyIfPossible,
+		Architecture:         config.GetArch(),
+		Filter:               filters.Empty(),
+		CachePath:            cachePath,
+	}
+	definition, err := packager.GetPackageFromSourceOrCluster(ctx, nil, source, "", loadOpts)
+	if err != nil {
+		return nil, fmt.Errorf("unable to load the package: %w", err)
+	}
+	pkg := definition.AsV1alpha1()
+
+	info := &DefinitionInfo{
+		Name:         pkg.Metadata.Name,
+		Version:      pkg.Metadata.Version,
+		Description:  pkg.Metadata.Description,
+		Architecture: pkg.Metadata.Architecture,
+		Kind:         string(pkg.Kind),
+		Variables:    make([]VariableInfo, 0, len(pkg.Variables)),
+		Components:   make([]ComponentInfo, 0, len(pkg.Components)),
+	}
+	for _, v := range pkg.Variables {
+		info.Variables = append(info.Variables, VariableInfo{
+			Name:        v.Name,
+			Default:     v.Default,
+			Description: v.Description,
+			Sensitive:   v.Sensitive,
+			Prompt:      v.Prompt,
+		})
+	}
+	for _, c := range pkg.Components {
+		info.Components = append(info.Components, ComponentInfo{
+			Name:        c.Name,
+			Description: c.Description,
+			Optional:    c.Required == nil || !*c.Required,
+			Default:     c.Default,
+			Group:       c.DeprecatedGroup,
+		})
+	}
+	return info, nil
 }
 
 // buildValues merges inline values with dot-path set-values, mirroring the

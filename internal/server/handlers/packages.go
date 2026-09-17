@@ -5,6 +5,8 @@ import (
 	"net/http"
 
 	"github.com/zarf-dev/zarf/src/pkg/packager/layout"
+
+	"github.com/kevinbiebuyck/zarf-api/internal/zarfz"
 )
 
 // packageImport imports a package in a single request. The request body is
@@ -49,6 +51,23 @@ func (h *Handlers) packageDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// packageDefinition returns the package's zarf.yaml definition (variables,
+// components) so clients can render deploy forms. Equivalent to
+// `zarf package inspect definition`.
+func (h *Handlers) packageDefinition(w http.ResponseWriter, r *http.Request) {
+	path, err := h.store.Path(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	def, err := zarfz.GetDefinition(r.Context(), path)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, def)
 }
 
 func parseVerify(mode string) (layout.VerificationStrategy, error) {
