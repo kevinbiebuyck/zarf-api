@@ -66,10 +66,16 @@ Base path: `/api/v1`
 | Method & path | Description |
 | --- | --- |
 | `POST /api/v1/uploads` | Start a session. Body: `{"fileName": "...", "sha256": "..."}` (both optional) |
-| `PUT /api/v1/uploads/{id}/chunks/{n}` | Push chunk `n` (0-based, any order, raw bytes) |
+| `GET /api/v1/uploads` | List in-flight sessions (for resume/cleanup) |
+| `PUT /api/v1/uploads/{id}/chunks/{n}` | Push chunk `n` (0-based, any order, raw bytes; re-sends allowed) |
 | `GET /api/v1/uploads/{id}` | Session status (received chunks/bytes) |
 | `POST /api/v1/uploads/{id}/complete` | Assemble chunks, verify sha256, validate with zarf, store |
 | `DELETE /api/v1/uploads/{id}` | Abort and clean up |
+
+Uploads are resumable: chunks are stored atomically per index, so a client
+can query the session, skip chunks the server already has, and continue. The
+web UI uses this for pause/resume and wipes other sessions when a new upload
+starts.
 
 Chunks must be contiguous from `0` at completion. Imported packages are
 validated by loading them with zarf itself (checksums + optional signature

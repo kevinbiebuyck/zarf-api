@@ -34,6 +34,15 @@ func (h *Handlers) uploadCreate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, u)
 }
 
+func (h *Handlers) uploadList(w http.ResponseWriter, r *http.Request) {
+	uploads, err := h.store.ListUploads(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"uploads": uploads})
+}
+
 func (h *Handlers) uploadGet(w http.ResponseWriter, r *http.Request) {
 	u, err := h.store.GetUpload(r.Context(), r.PathValue("id"))
 	if err != nil {

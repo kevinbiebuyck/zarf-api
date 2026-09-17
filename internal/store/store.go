@@ -419,6 +419,27 @@ func (s *Store) CountUploads(_ context.Context) (int, error) {
 	return n, nil
 }
 
+// ListUploads returns all in-flight upload sessions, oldest first.
+func (s *Store) ListUploads(_ context.Context) ([]Upload, error) {
+	entries, err := os.ReadDir(s.uploadsDir)
+	if err != nil {
+		return nil, err
+	}
+	out := []Upload{}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		u, err := s.readSession(e.Name())
+		if err != nil {
+			continue // skip unreadable sessions rather than failing the listing
+		}
+		out = append(out, u)
+	}
+	slices.SortFunc(out, func(a, b Upload) int { return a.CreatedAt.Compare(b.CreatedAt) })
+	return out, nil
+}
+
 func (s *Store) sessionDir(id string) string {
 	return filepath.Join(s.uploadsDir, id)
 }

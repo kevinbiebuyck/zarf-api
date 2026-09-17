@@ -54,6 +54,7 @@ func (h *Handlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+bp+"/api/v1/packages/{id}/deploy", h.packageDeploy)
 
 	mux.HandleFunc("POST "+bp+"/api/v1/uploads", h.uploadCreate)
+	mux.HandleFunc("GET "+bp+"/api/v1/uploads", h.uploadList)
 	mux.HandleFunc("GET "+bp+"/api/v1/uploads/{id}", h.uploadGet)
 	mux.HandleFunc("PUT "+bp+"/api/v1/uploads/{id}/chunks/{index}", h.uploadChunk)
 	mux.HandleFunc("POST "+bp+"/api/v1/uploads/{id}/complete", h.uploadComplete)

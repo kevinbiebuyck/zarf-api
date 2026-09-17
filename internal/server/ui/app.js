@@ -184,12 +184,21 @@ async function loadPackages() {
 // ---------- chunked upload ----------
 
 const CHUNK_SIZE = 8 * 1024 * 1024;
+const UPLOAD_LS_KEY = "zarf-api-upload";
 let uploadInProgress = false;
+let currentXhr = null;
+let pauseRequested = false;
+let pendingResume = null; // { state, session } waiting for the user to re-pick the file
+
+function saveUploadState(s) { try { localStorage.setItem(UPLOAD_LS_KEY, JSON.stringify(s)); } catch { /* ignore */ } }
+function loadUploadState() { try { return JSON.parse(localStorage.getItem(UPLOAD_LS_KEY)); } catch { return null; } }
+function clearUploadState() { try { localStorage.removeItem(UPLOAD_LS_KEY); } catch { /* ignore */ } }
 
 // fetch() cannot report upload progress; XHR can.
 function putChunk(url, blob, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
+    currentXhr = xhr;
     xhr.open("PUT", url);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress(e.loaded / e.total);
@@ -201,16 +210,20 @@ function putChunk(url, blob, onProgress) {
       reject(new Error(msg));
     };
     xhr.onerror = () => reject(new Error("network error"));
+    xhr.onabort = () => reject(new Error("paused"));
     xhr.send(blob);
   });
 }
 
-async function uploadPackage(file) {
+// uploadPackage uploads file in chunks. With resumeSession, chunks the
+// server already has (at the expected size) are skipped.
+async function uploadPackage(file, resumeSession = null) {
   if (uploadInProgress) {
     toast("An upload is already in progress", "err");
     return;
   }
   uploadInProgress = true;
+  pauseRequested = false;
   const dz = $("#dropzone");
   const wrap = $("#upload-progress");
   const bar = wrap.querySelector(".bar");
@@ -226,12 +239,36 @@ async function uploadPackage(file) {
   wrap.classList.remove("hidden");
   prog.classList.remove("indet");
   nameEl.textContent = file.name;
-  setProgress(0, file.size);
+
+  const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
+  const chunkSize = (i) => Math.min(CHUNK_SIZE, file.size - i * CHUNK_SIZE);
+  let session = resumeSession;
+  let startIndex = 0;
+  let uploaded = 0;
+
   try {
-    const session = await api("POST", "/uploads", { fileName: file.name });
-    const chunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
-    let uploaded = 0;
-    for (let i = 0; i < chunks; i++) {
+    if (session) {
+      // Resume: skip contiguous chunks the server already has complete.
+      const have = session.chunks || {};
+      for (let i = 0; i < totalChunks; i++) {
+        if (have[i] === chunkSize(i)) { uploaded += chunkSize(i); startIndex = i + 1; } else break;
+      }
+    } else {
+      // A new upload wipes any other unfinished sessions, server-side and local.
+      try {
+        const list = await api("GET", "/uploads");
+        for (const u of list.uploads || []) {
+          await api("DELETE", "/uploads/" + u.id).catch(() => {});
+        }
+      } catch { /* best effort */ }
+      clearUploadState();
+      hideResumeBanner();
+      session = await api("POST", "/uploads", { fileName: file.name });
+      saveUploadState({ sessionId: session.id, fileName: file.name, size: file.size });
+    }
+
+    setProgress(uploaded, file.size);
+    for (let i = startIndex; i < totalChunks; i++) {
       const blob = file.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
       await putChunk(`${API}/uploads/${session.id}/chunks/${i}`, blob,
         (f) => setProgress(uploaded + f * blob.size, file.size));
@@ -243,20 +280,59 @@ async function uploadPackage(file) {
     statsEl.textContent = "validating with zarf…";
     const pkg = await api("POST", `/uploads/${session.id}/complete`);
     bar.style.width = "100%";
+    clearUploadState();
     toast(`Imported ${pkg.id}`, "ok");
     loadPackages();
   } catch (e) {
-    toast("Upload failed: " + e.message, "err");
+    if (pauseRequested) {
+      // Session stays on the server and in localStorage for later resume.
+      showResumeBanner(loadUploadState(), session);
+      toast("Upload paused — pick the same file later to resume", "");
+    } else {
+      toast("Upload failed: " + e.message + " (you can resume it later)", "err");
+      if (session && loadUploadState()) showResumeBanner(loadUploadState(), session);
+    }
   } finally {
     uploadInProgress = false;
+    currentXhr = null;
     dz.classList.remove("busy");
     wrap.classList.add("hidden");
+  }
+}
+
+// --- resume banner ---
+
+function showResumeBanner(state, session) {
+  if (!state || !session) return;
+  const banner = $("#resume-banner");
+  const uploaded = Object.values(session.chunks || {}).reduce((a, b) => a + b, 0);
+  const pct = state.size ? Math.round((uploaded / state.size) * 100) : 0;
+  banner.querySelector(".text").textContent =
+    `Unfinished upload: ${state.fileName} (${pct}% uploaded). Pick the same file to resume.`;
+  banner.classList.remove("hidden");
+  pendingResume = { state, session };
+}
+
+function hideResumeBanner() {
+  $("#resume-banner").classList.add("hidden");
+  pendingResume = null;
+}
+
+async function checkUploadResume() {
+  const state = loadUploadState();
+  if (!state) return;
+  try {
+    const session = await api("GET", "/uploads/" + state.sessionId);
+    showResumeBanner(state, session);
+  } catch {
+    clearUploadState(); // session no longer exists server-side
   }
 }
 
 function setupUpload() {
   const dz = $("#dropzone");
   const input = $("#file-input");
+  const resumeInput = $("#resume-input");
   $("#browse-btn").onclick = () => input.click();
   input.onchange = () => { if (input.files[0]) uploadPackage(input.files[0]); input.value = ""; };
   dz.ondragover = (e) => { e.preventDefault(); dz.classList.add("dragover"); };
@@ -265,6 +341,35 @@ function setupUpload() {
     e.preventDefault();
     dz.classList.remove("dragover");
     if (e.dataTransfer.files[0]) uploadPackage(e.dataTransfer.files[0]);
+  };
+
+  // Pause: abort the in-flight chunk; the session survives for resume.
+  $("#pause-btn").onclick = () => {
+    pauseRequested = true;
+    if (currentXhr) currentXhr.abort();
+  };
+
+  // Resume: the user re-picks the interrupted file (browsers can't reopen it).
+  $("#resume-btn").onclick = () => resumeInput.click();
+  resumeInput.onchange = () => {
+    const file = resumeInput.files[0];
+    resumeInput.value = "";
+    if (!file || !pendingResume) return;
+    const { state, session } = pendingResume;
+    if (file.name !== state.fileName || file.size !== state.size) {
+      toast(`File does not match the interrupted upload (expected ${state.fileName}, ${fmtBytes(state.size)})`, "err");
+      return;
+    }
+    pendingResume = null;
+    hideResumeBanner();
+    uploadPackage(file, session);
+  };
+  $("#resume-discard-btn").onclick = async () => {
+    if (!pendingResume) return;
+    const { state } = pendingResume;
+    try { await api("DELETE", "/uploads/" + state.sessionId); } catch { /* already gone */ }
+    clearUploadState();
+    hideResumeBanner();
   };
 }
 
@@ -736,6 +841,7 @@ $("#job-logs-close").onclick = () => $("#job-logs").classList.add("hidden");
 
 setupUpload();
 loadPackages();
+checkUploadResume();
 api("GET", "/version").then((v) => { $("#version").textContent = v.version; }).catch(() => {});
 setInterval(loadJobs, 3000);
 loadJobs();

@@ -21,11 +21,24 @@
     <section id="tab-packages" class="tab-panel">
       <div class="card upload-card" id="dropzone">
         <input type="file" id="file-input" accept=".zst,.tar" hidden>
+        <input type="file" id="resume-input" accept=".zst,.tar" hidden>
         <p>Drop a <code>.tar.zst</code> package here or
            <button class="btn" id="browse-btn">browse…</button></p>
-        <p class="muted">Large packages are uploaded in chunks and verified with zarf on completion.</p>
+        <p class="muted">Large packages are uploaded in chunks and verified with zarf on completion.
+           Starting a new upload discards any other unfinished upload.</p>
+        <div id="resume-banner" class="resume-banner hidden">
+          <span class="text"></span>
+          <span class="actions">
+            <button class="btn small primary" id="resume-btn">Resume…</button>
+            <button class="btn small" id="resume-discard-btn">Discard</button>
+          </span>
+        </div>
         <div id="upload-progress" class="progress-wrap hidden">
-          <div class="progress-label"><span class="name mono"></span><span class="stats muted"></span></div>
+          <div class="progress-label">
+            <span class="name mono"></span>
+            <span class="stats muted"></span>
+            <button class="btn small" id="pause-btn">Pause</button>
+          </div>
           <div class="progress"><div class="bar"></div></div>
         </div>
       </div>
