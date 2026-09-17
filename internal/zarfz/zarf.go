@@ -110,23 +110,6 @@ type RemoveRequest struct {
 	SkipVersionCheck bool           `json:"skipVersionCheck,omitempty"`
 }
 
-// DeployedPackageInfo mirrors the output of `zarf package list`.
-type DeployedPackageInfo struct {
-	Package           string                    `json:"package"`
-	NamespaceOverride string                    `json:"namespaceOverride,omitempty"`
-	Version           string                    `json:"version"`
-	Connectivity      state.PackageConnectivity `json:"connectivity"`
-	Components        []DeployedComponentInfo   `json:"components"`
-	Generation        int                       `json:"generation"`
-	Digest            string                    `json:"digest,omitempty"`
-	CLIVersion        string                    `json:"cliVersion,omitempty"`
-}
-
-// DeployedComponentInfo is one deployed component's name and status.
-type DeployedComponentInfo struct {
-	Name   string `json:"name"`
-	Status string `json:"status"`
-}
 
 // Deploy mirrors `zarf package deploy --confirm` (non-interactive). The
 // package source is loaded, then handed to packager.Deploy — the same
@@ -243,7 +226,7 @@ func Remove(ctx context.Context, name string, req RemoveRequest) error {
 
 // ListDeployed mirrors `zarf package list`: it reads the deployed-package
 // secrets from the cluster's zarf namespace.
-func ListDeployed(ctx context.Context) ([]DeployedPackageInfo, error) {
+func ListDeployed(ctx context.Context) ([]state.DeployedPackage, error) {
 	c, err := cluster.New(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to connect to the Kubernetes cluster: %w", err)
@@ -252,28 +235,7 @@ func ListDeployed(ctx context.Context) ([]DeployedPackageInfo, error) {
 	if err != nil && len(deployed) == 0 {
 		return nil, fmt.Errorf("unable to get the packages deployed to the cluster: %w", err)
 	}
-
-	out := make([]DeployedPackageInfo, 0, len(deployed))
-	for _, pkg := range deployed {
-		info := DeployedPackageInfo{
-			Package:           pkg.Name,
-			NamespaceOverride: pkg.NamespaceOverride,
-			Version:           pkg.Data.Metadata.Version,
-			Connectivity:      pkg.GetPackageConnectivity(),
-			Generation:        pkg.Generation,
-			Digest:            pkg.Digest,
-			CLIVersion:        pkg.CLIVersion,
-			Components:        make([]DeployedComponentInfo, 0, len(pkg.DeployedComponents)),
-		}
-		for _, comp := range pkg.DeployedComponents {
-			info.Components = append(info.Components, DeployedComponentInfo{
-				Name:   comp.Name,
-				Status: string(comp.Status),
-			})
-		}
-		out = append(out, info)
-	}
-	return out, nil
+	return deployed, nil
 }
 
 // GetDeployed returns the full recorded state of one deployed package,
