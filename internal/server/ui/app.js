@@ -235,10 +235,9 @@ function setupUpload() {
 // ---------- deploy modal (install / edit / upgrade) ----------
 
 // definition: DefinitionInfo from /packages/{id}/definition (or reconstructed
-// from a deployment). preselectedComponents: names to check. prefillVariables:
-// {NAME: value} overrides.
+// from a deployment). preselectedComponents: names to check.
 function openDeployModal(opts) {
-  const { title, storeId, definition, preselectedComponents, prefillVariables } = opts;
+  const { title, storeId, definition, preselectedComponents } = opts;
   const body = el("div");
 
   // --- components ---
@@ -279,25 +278,52 @@ function openDeployModal(opts) {
     body.append(f);
   }
 
-  // --- variables ---
-  if (definition.variables && definition.variables.length) {
-    const f = el("div", "field");
-    f.append(el("label", "", "Variables"));
-    const grid = el("div", "var-grid");
-    for (const v of definition.variables) {
-      const wrap = el("div");
-      const lab = el("label", "", v.name + (v.description ? ` — ${v.description}` : ""));
-      const input = document.createElement("input");
-      input.type = v.sensitive ? "password" : "text";
-      input.dataset.variable = v.name;
-      input.placeholder = v.default ? `default: ${v.default}` : "";
-      const preset = prefillVariables && prefillVariables[v.name];
-      input.value = preset !== undefined ? preset : (v.default || "");
-      wrap.append(lab, input);
-      grid.append(wrap);
+  // --- helm values overrides (per chart) ---
+  const charts = [];
+  for (const c of definition.components || []) {
+    for (const ch of c.charts || []) charts.push({ component: c.name, ...ch });
+  }
+  if (charts.length) {
+    const vf = el("div", "field");
+    vf.append(el("label", "", "Helm values overrides"));
+    const hint = el("div", "hint", "Dot-path key/value pairs per chart. Types are inferred: 3 → number, true → bool.");
+    hint.classList.add("muted");
+    vf.append(hint);
+    for (const ch of charts) {
+      const box = el("div", "chart-values");
+      box.dataset.component = ch.component;
+      box.dataset.chart = ch.name;
+      const head = el("div", "check-row");
+      head.append(el("span", "mono", ch.name),
+        el("span", "desc", [ch.version, ch.namespace && `ns: ${ch.namespace}`].filter(Boolean).join(" · ")));
+      box.append(head);
+      const rows = el("div");
+      const addRow = (k = "", v = "") => {
+        const row = el("div", "check-row values-row");
+        const ki = document.createElement("input");
+        ki.type = "text";
+        ki.placeholder = "replicaCount";
+        ki.className = "value-key";
+        ki.value = k;
+        ki.style.flex = "1";
+        const vi = document.createElement("input");
+        vi.type = "text";
+        vi.placeholder = "3";
+        vi.className = "value-val";
+        vi.value = v;
+        vi.style.flex = "1";
+        const rm = el("button", "btn small", "✕");
+        rm.onclick = () => row.remove();
+        row.append(ki, vi, rm);
+        rows.append(row);
+      };
+      addRow();
+      const addBtn = el("button", "btn small", "+ Add value");
+      addBtn.onclick = () => addRow();
+      box.append(rows, addBtn);
+      vf.append(box);
     }
-    f.append(grid);
-    body.append(f);
+    body.append(vf);
   }
 
   // --- advanced ---
@@ -322,7 +348,6 @@ function openDeployModal(opts) {
     if (hint) f.append(el("span", "desc", hint));
     adv.append(f);
   };
-  mkText("Namespace override", "namespaceOverride", "deploy all charts into this namespace");
   mkText("Timeout", "timeout", "e.g. 15m (zarf default when empty)");
   mkCheck("Take ownership of existing resources", "takeOwnership");
   mkCheck("Connected deploy (no image/repo mirroring)", "connected", "for clusters without zarf init");
@@ -334,11 +359,19 @@ function openDeployModal(opts) {
   submit.onclick = async () => {
     const components = [...body.querySelectorAll("[data-component]")]
       .filter((i) => i.checked).map((i) => i.dataset.component);
-    const setVariables = {};
-    body.querySelectorAll("[data-variable]").forEach((i) => {
-      if (i.value !== "") setVariables[i.dataset.variable] = i.value;
+    const valuesOverrides = {};
+    body.querySelectorAll(".chart-values").forEach((box) => {
+      box.querySelectorAll(".values-row").forEach((row) => {
+        const k = row.querySelector(".value-key").value.trim();
+        const v = row.querySelector(".value-val").value;
+        if (k === "") return;
+        const comp = box.dataset.component, chart = box.dataset.chart;
+        (valuesOverrides[comp] ??= {})[chart] ??= {};
+        valuesOverrides[comp][chart][k] = v;
+      });
     });
-    const req = { setVariables };
+    const req = {};
+    if (Object.keys(valuesOverrides).length) req.valuesOverrides = valuesOverrides;
     if (components.length) req.components = components.join(",");
     for (const i of body.querySelectorAll("[data-opt]")) {
       const k = i.dataset.opt;
@@ -457,6 +490,9 @@ function definitionFromDeployment(full) {
       name: c.name, description: c.description,
       optional: c.required !== true,
       default: c.default, group: c.group,
+      charts: (c.charts || []).map((ch) => ({
+        name: ch.name, namespace: ch.namespace, version: ch.version,
+      })),
     })),
   };
 }

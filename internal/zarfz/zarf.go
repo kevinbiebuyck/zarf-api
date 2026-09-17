@@ -61,9 +61,16 @@ type DeployRequest struct {
 	// SetVariables maps to --set-variables (###ZARF_VAR_*### templating).
 	SetVariables map[string]string `json:"setVariables,omitempty"`
 	// SetValues maps to --set-values (dot-path helm values, typed by inference).
+	// Note: like the CLI flag, these populate the package-level values document
+	// and only reach a chart when the package maps them via chart values
+	// sourcePath/targetPath. For direct chart overrides use ValuesOverrides.
 	SetValues map[string]string `json:"setValues,omitempty"`
 	// Values are inline helm values, merged before SetValues.
 	Values map[string]any `json:"values,omitempty"`
+	// ValuesOverrides are direct per-chart helm values overrides:
+	// component -> chart -> dot-path -> value (typed by inference). They merge
+	// on top of everything else, like zarf's library-only ValuesOverridesMap.
+	ValuesOverrides map[string]map[string]map[string]string `json:"valuesOverrides,omitempty"`
 
 	NamespaceOverride string `json:"namespaceOverride,omitempty"`
 	TakeOwnership     bool   `json:"takeOwnership,omitempty"`
@@ -163,9 +170,14 @@ func Deploy(ctx context.Context, req DeployRequest) (*packager.DeployResult, err
 	if err != nil {
 		return nil, err
 	}
+	overrides, err := buildOverrides(req.ValuesOverrides)
+	if err != nil {
+		return nil, err
+	}
 
 	deployOpts := packager.DeployOptions{
 		Values:                     values,
+		ValuesOverridesMap:         overrides,
 		TakeOwnership:              req.TakeOwnership,
 		Connected:                  req.Connected,
 		ForceConflicts:             req.ForceConflicts,
@@ -287,6 +299,13 @@ type VariableInfo struct {
 	Prompt      bool   `json:"prompt,omitempty"`
 }
 
+// ChartInfo identifies one helm chart inside a component.
+type ChartInfo struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace,omitempty"`
+	Version   string `json:"version,omitempty"`
+}
+
 // ComponentInfo describes one component of a package for selection purposes.
 type ComponentInfo struct {
 	Name        string `json:"name"`
@@ -298,6 +317,8 @@ type ComponentInfo struct {
 	Default bool `json:"default,omitempty"`
 	// Group links mutually exclusive components (deploy picks one per group).
 	Group string `json:"group,omitempty"`
+	// Charts are the helm charts of this component (for values overrides).
+	Charts []ChartInfo `json:"charts,omitempty"`
 }
 
 // DefinitionInfo is the UI/API-facing view of a package definition.
@@ -349,13 +370,21 @@ func GetDefinition(ctx context.Context, source string) (*DefinitionInfo, error) 
 		})
 	}
 	for _, c := range pkg.Components {
-		info.Components = append(info.Components, ComponentInfo{
+		ci := ComponentInfo{
 			Name:        c.Name,
 			Description: c.Description,
 			Optional:    c.Required == nil || !*c.Required,
 			Default:     c.Default,
 			Group:       c.DeprecatedGroup,
-		})
+		}
+		for _, ch := range c.Charts {
+			ci.Charts = append(ci.Charts, ChartInfo{
+				Name:      ch.Name,
+				Namespace: ch.Namespace,
+				Version:   ch.Version,
+			})
+		}
+		info.Components = append(info.Components, ci)
 	}
 	return info, nil
 }
@@ -374,6 +403,32 @@ func buildValues(values map[string]any, setValues map[string]string) (value.Valu
 		}
 		if err := out.Set(path, value.InferType(val)); err != nil {
 			return nil, fmt.Errorf("unable to set value at path %s: %w", key, err)
+		}
+	}
+	return out, nil
+}
+
+// buildOverrides converts the API's component -> chart -> dot-path -> string
+// form into zarf's ValuesOverridesMap with typed, nested values.
+func buildOverrides(in map[string]map[string]map[string]string) (packager.ValuesOverrides, error) {
+	if len(in) == 0 {
+		return nil, nil
+	}
+	out := packager.ValuesOverrides{}
+	for component, charts := range in {
+		out[component] = map[string]map[string]any{}
+		for chart, kvs := range charts {
+			vals := value.Values{}
+			for key, val := range kvs {
+				path := value.Path(key)
+				if !strings.HasPrefix(key, ".") {
+					path = value.Path("." + key)
+				}
+				if err := vals.Set(path, value.InferType(val)); err != nil {
+					return nil, fmt.Errorf("unable to set value at path %s: %w", key, err)
+				}
+			}
+			out[component][chart] = vals
 		}
 	}
 	return out, nil

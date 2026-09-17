@@ -32,7 +32,7 @@ A simple embedded web UI is served at `/ui/` (redirect from `/`) when
 - importing packages (chunked upload with progress) and deleting them
 - browsing the local store grouped by application with all loaded versions
 - listing deployed packages, and for each: **Edit** (redeploy with changed
-  variables/components), **Upgrade** (to another version present in the
+  helm values/components), **Upgrade** (to another version present in the
   store), **Delete**, plus **New installation** from any stored package
 - watching deploy/remove jobs with their captured zarf logs
 
@@ -96,6 +96,7 @@ Mirrors `zarf package deploy` flags:
   "setVariables": {"DOMAIN": "example.com"},
   "setValues": {"replicas": "3"},
   "values": {"image": {"pullPolicy": "Always"}},
+  "valuesOverrides": {"component-name": {"chart-name": {"replicaCount": "3"}}},
   "namespaceOverride": "",
   "takeOwnership": false,
   "connected": false,
@@ -113,6 +114,14 @@ Mirrors `zarf package deploy` flags:
 
 `source` (optional) overrides the stored package with anything the CLI accepts
 as `PACKAGE_SOURCE` (`oci://...`, `https://...`, local path).
+
+Note the difference between the two helm-values mechanisms, mirroring zarf
+itself: `setValues`/`values` populate the package-level values document (like
+`--set-values`) and only reach a chart when the package maps them via chart
+`values` sourcePath/targetPath entries. `valuesOverrides` are direct per-chart
+overrides (component → chart → dot-path → value, typed by inference) merged on
+top of everything else — this is what the UI's "Helm values overrides" form
+sends.
 
 Deploys and removes run as **jobs** (serialized — zarf uses process-global
 state). The response is `202 Accepted` with a job id; poll
