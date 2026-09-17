@@ -196,6 +196,7 @@ async function loadPackages() {
 const CHUNK_SIZE = 8 * 1024 * 1024;
 const UPLOAD_LS_KEY = "zarf-api-upload";
 let uploadInProgress = false;
+let uploadQueue = [];
 let currentXhr = null;
 let pauseRequested = false;
 let pendingResume = null; // { state, session } waiting for the user to re-pick the file
@@ -225,34 +226,60 @@ function putChunk(url, blob, onProgress) {
   });
 }
 
-// uploadPackage uploads file in chunks. With resumeSession, chunks the
-// server already has (at the expected size) are skipped.
-async function uploadPackage(file, resumeSession = null) {
+// startUploads enqueues files and processes them sequentially.
+async function startUploads(files, resumeSession = null) {
   if (uploadInProgress) {
     toast("An upload is already in progress", "err");
     return;
   }
   uploadInProgress = true;
-  pauseRequested = false;
+  uploadQueue = [...files];
+
   const dz = $("#dropzone");
+  const wrap = $("#upload-progress");
+  dz.classList.add("busy");
+  wrap.classList.remove("hidden");
+
+  while (uploadQueue.length > 0) {
+    const file = uploadQueue.shift();
+    const sessionToUse = resumeSession;
+    resumeSession = null; // only use the provided session for the first file
+    
+    await _uploadSingle(file, sessionToUse, uploadQueue.length);
+
+    if (pauseRequested) {
+      uploadQueue = []; // flush queue if paused
+      break;
+    }
+  }
+
+  uploadInProgress = false;
+  currentXhr = null;
+  dz.classList.remove("busy");
+  wrap.classList.add("hidden");
+}
+
+// _uploadSingle handles the chunked upload of a single file.
+async function _uploadSingle(file, session, remainingInQueue) {
+  pauseRequested = false;
   const wrap = $("#upload-progress");
   const bar = wrap.querySelector(".bar");
   const prog = wrap.querySelector(".progress");
   const nameEl = wrap.querySelector(".name");
   const statsEl = wrap.querySelector(".stats");
+
   const setProgress = (uploaded, total) => {
     const f = total ? uploaded / total : 0;
     bar.style.width = (f * 100).toFixed(1) + "%";
-    statsEl.textContent = `${fmtBytes(uploaded)} / ${fmtBytes(total)} — ${(f * 100).toFixed(0)}%`;
+    const qStr = remainingInQueue > 0 ? ` (+${remainingInQueue})` : "";
+    statsEl.textContent = `${fmtBytes(uploaded)} / ${fmtBytes(total)} — ${(f * 100).toFixed(0)}%${qStr}`;
   };
-  dz.classList.add("busy");
-  wrap.classList.remove("hidden");
+
   prog.classList.remove("indet");
   nameEl.textContent = file.name;
 
   const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
   const chunkSize = (i) => Math.min(CHUNK_SIZE, file.size - i * CHUNK_SIZE);
-  let session = resumeSession;
   let startIndex = 0;
   let uploaded = 0;
 
@@ -301,12 +328,8 @@ async function uploadPackage(file, resumeSession = null) {
     } else {
       toast("Upload failed: " + e.message + " (you can resume it later)", "err");
       if (session && loadUploadState()) showResumeBanner(loadUploadState(), session);
+      pauseRequested = true; // Stop the queue on error
     }
-  } finally {
-    uploadInProgress = false;
-    currentXhr = null;
-    dz.classList.remove("busy");
-    wrap.classList.add("hidden");
   }
 }
 
@@ -353,13 +376,13 @@ function setupUpload() {
   const input = $("#file-input");
   const resumeInput = $("#resume-input");
   $("#browse-btn").onclick = () => input.click();
-  input.onchange = () => { if (input.files[0]) uploadPackage(input.files[0]); input.value = ""; };
+  input.onchange = () => { if (input.files.length) startUploads(input.files); input.value = ""; };
   dz.ondragover = (e) => { e.preventDefault(); dz.classList.add("dragover"); };
   dz.ondragleave = () => dz.classList.remove("dragover");
   dz.ondrop = (e) => {
     e.preventDefault();
     dz.classList.remove("dragover");
-    if (e.dataTransfer.files[0]) uploadPackage(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files.length) startUploads(e.dataTransfer.files);
   };
 
   // Pause: abort the in-flight chunk; the session survives for resume.
@@ -381,7 +404,7 @@ function setupUpload() {
     }
     pendingResume = null;
     hideResumeBanner();
-    uploadPackage(file, session);
+    startUploads([file], session);
   };
   $("#resume-discard-btn").onclick = async () => {
     if (!pendingResume) return;

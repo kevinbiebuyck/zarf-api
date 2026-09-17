@@ -20,9 +20,9 @@
   <main>
     <section id="tab-packages" class="tab-panel">
       <div class="card upload-card" id="dropzone">
-        <input type="file" id="file-input" accept=".zst,.tar" hidden>
+        <input type="file" id="file-input" accept=".zst,.tar" multiple hidden>
         <input type="file" id="resume-input" accept=".zst,.tar" hidden>
-        <p>Drop a <code>.tar.zst</code> package here or
+        <p>Drop <code>.tar.zst</code> packages here or
            <button class="btn" id="browse-btn">browse…</button></p>
         <p class="muted">Large packages are uploaded in chunks and verified with zarf on completion.
            Starting a new upload discards any other unfinished upload.</p>
