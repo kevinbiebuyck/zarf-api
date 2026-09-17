@@ -743,12 +743,13 @@ async function loadInstalled() {
     </tr></thead>`;
     const tbody = el("tbody");
     for (const d of deployments) {
+      if (d.package === "init") continue; // The init package cannot be managed via the API.
       const tr = el("tr");
       const comps = (d.components || [])
         .map((c) => `<span class="badge ${c.status === "Succeeded" ? "ok" : "err"}">${esc(c.name)}</span>`)
         .join(" ");
       tr.insertAdjacentHTML("beforeend", `
-        <td class="mono">${esc(d.package)}</td>
+        <td class="mono" title="${esc(JSON.stringify(d, null, 2))}">${esc(d.package)}</td>
         <td class="mono">${esc(d.version || "—")}</td>
         <td>${comps}</td>
         <td>${esc(d.connectivity || "—")}</td>
