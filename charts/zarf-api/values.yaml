@@ -22,6 +22,7 @@ ui:
 ingress:
   enabled: false
   className: ""
+  annotations: {}
   hosts: []
   #  - host: zarf-api.local
   #    paths:
