@@ -29,11 +29,14 @@ builds always compile against the pinned submodule commit.
 A simple embedded web UI is served at `/ui/` (redirect from `/`) when
 `ZARF_API_UI_ENABLED=true` (default; Helm: `ui.enabled`). It supports:
 
-- importing packages (chunked upload with progress) and deleting them
+- importing packages (chunked upload with progress, pause/resume) and
+  deleting them
 - browsing the local store grouped by application with all loaded versions
 - listing deployed packages, and for each: **Edit** (redeploy with changed
   helm values/components), **Upgrade** (to another version present in the
   store), **Delete**, plus **New installation** from any stored package
+- generating the install configuration form from a package's
+  `config.schema.json` when present (see below)
 - watching deploy/remove jobs with their captured zarf logs
 
 Disable it with `ZARF_API_UI_ENABLED=false` to expose only the JSON API.
@@ -58,6 +61,7 @@ Base path: `/api/v1`
 | `GET /api/v1/packages` | List imported packages |
 | `GET /api/v1/packages/{id}` | Package metadata |
 | `GET /api/v1/packages/{id}/definition` | Package definition (variables, components) — `zarf package inspect definition` |
+| `GET /api/v1/packages/{id}/config-schema` | The package's `config.schema.json` (JSON Schema for install-time configuration), `404` when absent |
 | `DELETE /api/v1/packages/{id}` | Delete from the local store |
 | `POST /api/v1/packages/{id}/deploy` | Deploy into the cluster (async job, `?wait=true` for sync) |
 
@@ -125,9 +129,35 @@ Note the difference between the two helm-values mechanisms, mirroring zarf
 itself: `setValues`/`values` populate the package-level values document (like
 `--set-values`) and only reach a chart when the package maps them via chart
 `values` sourcePath/targetPath entries. `valuesOverrides` are direct per-chart
-overrides (component → chart → dot-path → value, typed by inference) merged on
-top of everything else — this is what the UI's "Helm values overrides" form
-sends.
+overrides (component → chart → dot-path → value) merged on top of everything
+else. String leaves are typed by inference (`"3"` → `3`, `"true"` → `true`,
+wrap in single quotes to force a string); non-string JSON values (bool,
+number, array) are used as-is. This is what the UI's values forms send.
+
+### Schema-driven configuration (`config.schema.json`)
+
+When a package ships a **`config.schema.json`** (JSON Schema) at the root of
+its tarball, the deploy/edit/upgrade modal replaces the free-form values
+editor with a **form generated from that schema** — strings, numbers,
+booleans, `enum` dropdowns, nested objects and comma-separated arrays, with
+`default` prefill, `description` hints and `required` markers. On submit the
+values are sent as `valuesOverrides` applied to **every helm chart of the
+components being deployed** (helm harmlessly ignores keys a chart doesn't
+use).
+
+Packaging caveat: `zarf package create` only writes files it knows about, so
+a `config.schema.json` sitting next to your `zarf.yaml` is **not** included
+automatically. Add it to the tarball after create, register it in
+`checksums.txt` and update `metadata.aggregateChecksum` in `zarf.yaml`,
+otherwise the package fails integrity validation. The
+[`tools/addschema`](./tools/addschema/main.go) helper does exactly that:
+
+```sh
+go run ./tools/addschema zarf-package-myapp-amd64-1.0.0.tar.zst config.schema.json out.tar.zst
+```
+
+Note: modifying `zarf.yaml` breaks package signatures — inject before
+signing, or re-sign afterwards.
 
 Deploys and removes run as **jobs** (serialized — zarf uses process-global
 state). The response is `202 Accepted` with a job id; poll

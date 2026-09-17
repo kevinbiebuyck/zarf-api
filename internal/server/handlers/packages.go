@@ -70,6 +70,21 @@ func (h *Handlers) packageDefinition(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, def)
 }
 
+// packageConfigSchema returns the package's config.schema.json (a JSON
+// Schema shipped at the package root describing the install-time
+// configuration surface) so clients can render a generated config form.
+// 404 when the package has no such file.
+func (h *Handlers) packageConfigSchema(w http.ResponseWriter, r *http.Request) {
+	schema, err := h.store.ReadPackageRootFile(r.Context(), r.PathValue("id"), "config.schema.json")
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(schema)
+}
+
 func parseVerify(mode string) (layout.VerificationStrategy, error) {
 	switch mode {
 	case "", "if-possible":

@@ -3,7 +3,9 @@ module github.com/kevinbiebuyck/zarf-api
 go 1.26.6
 
 require (
+	github.com/klauspost/compress v1.19.2
 	github.com/zarf-dev/zarf v0.0.0
+	gopkg.in/yaml.v3 v3.0.1
 	helm.sh/helm/v4 v4.2.4
 )
 
@@ -305,7 +307,6 @@ require (
 	github.com/kastenhq/goversion v0.0.0-20230811215019-93b2f8823953 // indirect
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
 	github.com/kevinburke/ssh_config v1.2.0 // indirect
-	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/klauspost/pgzip v1.2.6 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
@@ -509,7 +510,6 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/ini.v1 v1.67.3 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 	howett.net/plist v1.0.1 // indirect
 	k8s.io/api v0.36.4 // indirect
 	k8s.io/apiextensions-apiserver v0.36.2 // indirect
@@ -537,7 +537,6 @@ require (
 )
 
 replace (
-
 	// Replace directives are not transitive in Go modules, so the ones from
 	// zarf's go.mod must be repeated here.
 	// TODO (@AABRO): Pending merge into github.com/gojsonschema/gojsonschema (https://github.com/gojsonschema/gojsonschema/pull/5)

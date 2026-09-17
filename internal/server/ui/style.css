@@ -210,7 +210,7 @@ td.actions .btn { margin-left: 6px; }
 
 .field { margin-bottom: 14px; }
 .field label { display: block; margin-bottom: 4px; color: var(--muted); font-size: 12px; }
-.field input[type="text"], .field input[type="password"], .field select {
+.field input[type="text"], .field input[type="password"], .field input[type="number"], .field select {
   width: 100%;
   background: var(--bg);
   border: 1px solid var(--border);
@@ -221,6 +221,12 @@ td.actions .btn { margin-left: 6px; }
 }
 .field input:focus, .field select:focus { outline: none; border-color: var(--accent); }
 .field .hint { font-size: 11px; color: var(--muted); margin-top: 3px; }
+.schema-group {
+  margin: 10px 0;
+  padding: 4px 0 4px 12px;
+  border-left: 2px solid var(--border);
+}
+.schema-group-title { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
 
 .check-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
 .check-row input { accent-color: var(--accent); }

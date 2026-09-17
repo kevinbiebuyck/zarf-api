@@ -384,10 +384,108 @@ function setupUpload() {
 
 // ---------- deploy modal (install / edit / upgrade) ----------
 
+// schemaFields renders form inputs from a JSON Schema's properties,
+// recursing into nested objects with dot-path prefixes. Supported: string,
+// integer/number, boolean, enum (select), array (comma-separated), object.
+function schemaFields(schema, prefix = "") {
+  const frag = document.createDocumentFragment();
+  const props = schema.properties || {};
+  const requiredSet = new Set(schema.required || []);
+  for (const [key, prop] of Object.entries(props)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    const label = (prop.title || key) + (requiredSet.has(key) ? " *" : "");
+    if (prop.type === "object" && prop.properties) {
+      const grp = el("div", "schema-group");
+      grp.append(el("div", "schema-group-title", label));
+      if (prop.description) grp.append(el("div", "hint muted", prop.description));
+      grp.append(schemaFields(prop, path));
+      frag.append(grp);
+      continue;
+    }
+    let input;
+    if (prop.enum) {
+      input = document.createElement("select");
+      if (!requiredSet.has(key) && prop.default === undefined) input.append(new Option("(chart default)", ""));
+      for (const opt of prop.enum) input.append(new Option(String(opt), String(opt)));
+      if (prop.default !== undefined) input.value = String(prop.default);
+    } else if (prop.type === "boolean") {
+      input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = prop.default === true;
+    } else if (prop.type === "integer" || prop.type === "number") {
+      input = document.createElement("input");
+      input.type = "number";
+      if (prop.type === "integer") input.step = "1";
+      if (prop.default !== undefined) input.value = prop.default;
+    } else if (prop.type === "array") {
+      input = document.createElement("input");
+      input.type = "text";
+      input.placeholder = "comma-separated values";
+      if (Array.isArray(prop.default)) input.value = prop.default.join(", ");
+    } else { // string or unspecified
+      input = document.createElement("input");
+      input.type = "text";
+      if (prop.default !== undefined) input.value = prop.default;
+    }
+    input.dataset.schemaPath = path;
+    input.dataset.schemaType = prop.enum ? "enum" : (prop.type || "string");
+    if (requiredSet.has(key)) input.dataset.schemaRequired = "1";
+    if (prop.type === "array") input.dataset.itemType = (prop.items && prop.items.type) || "string";
+    if (prop.type === "boolean") {
+      const row = el("div", "check-row");
+      row.append(input, el("span", "", label));
+      if (prop.description) row.append(el("span", "desc", prop.description));
+      frag.append(row);
+    } else {
+      const f = el("div", "field");
+      f.append(el("label", "", label));
+      f.append(input);
+      if (prop.description) f.append(el("div", "hint muted", prop.description));
+      frag.append(f);
+    }
+  }
+  return frag;
+}
+
+// collectSchemaValues reads the generated form into a flat dot-path map of
+// typed values. Empty optional fields are skipped so chart defaults apply.
+function collectSchemaValues(form) {
+  const values = {};
+  const missing = [];
+  for (const i of form.querySelectorAll("[data-schema-path]")) {
+    const path = i.dataset.schemaPath, type = i.dataset.schemaType;
+    if (type === "boolean") { values[path] = i.checked; continue; }
+    if (i.value.trim() === "") {
+      if (i.dataset.schemaRequired) missing.push(path);
+      continue;
+    }
+    if (type === "integer") values[path] = parseInt(i.value, 10);
+    else if (type === "number") values[path] = parseFloat(i.value);
+    else if (type === "array") {
+      const parts = i.value.split(",").map((s) => s.trim()).filter((s) => s !== "");
+      const numeric = i.dataset.itemType === "integer" || i.dataset.itemType === "number";
+      values[path] = numeric ? parts.map(Number) : parts;
+    } else {
+      // Wrap values that look like bools/ints in single quotes so the
+      // server-side type inference keeps them strings (zarf convention).
+      const v = i.value.trim();
+      values[path] = /^(true|false)$/i.test(v) || /^-?\d+$/.test(v) ? `'${v}'` : v;
+    }
+  }
+  return { values, missing };
+}
+
 // definition: DefinitionInfo from /packages/{id}/definition (or reconstructed
-// from a deployment). preselectedComponents: names to check.
-function openDeployModal(opts) {
+// from a deployment). preselectedComponents: names to check. When the package
+// ships a config.schema.json at its root, the values section is a form
+// generated from that schema instead of free-form key/value rows.
+async function openDeployModal(opts) {
   const { title, storeId, definition, preselectedComponents } = opts;
+  let schema = null;
+  try {
+    const r = await fetch(`${API}/packages/${encodeURIComponent(storeId)}/config-schema`);
+    if (r.ok) schema = await r.json();
+  } catch { /* no schema -> free-form values */ }
   const body = el("div");
 
   // --- components ---
@@ -428,12 +526,21 @@ function openDeployModal(opts) {
     body.append(f);
   }
 
-  // --- helm values overrides (per chart) ---
+  // --- configuration: schema-generated form when the package ships a
+  // config.schema.json, otherwise free-form per-chart helm values overrides ---
   const charts = [];
   for (const c of definition.components || []) {
     for (const ch of c.charts || []) charts.push({ component: c.name, ...ch });
   }
-  if (charts.length) {
+  if (schema) {
+    const cf = el("div", "field");
+    cf.dataset.schemaForm = "1";
+    cf.append(el("label", "", "Configuration"));
+    cf.append(el("div", "hint muted",
+      "Generated from the package's config.schema.json. Applied as helm values to every chart of the deployed components."));
+    cf.append(schemaFields(schema));
+    body.append(cf);
+  } else if (charts.length) {
     const vf = el("div", "field");
     vf.append(el("label", "", "Helm values overrides"));
     const hint = el("div", "hint", "Dot-path key/value pairs per chart. Types are inferred: 3 → number, true → bool.");
@@ -510,16 +617,38 @@ function openDeployModal(opts) {
     const components = [...body.querySelectorAll("[data-component]")]
       .filter((i) => i.checked).map((i) => i.dataset.component);
     const valuesOverrides = {};
-    body.querySelectorAll(".chart-values").forEach((box) => {
-      box.querySelectorAll(".values-row").forEach((row) => {
-        const k = row.querySelector(".value-key").value.trim();
-        const v = row.querySelector(".value-val").value;
-        if (k === "") return;
-        const comp = box.dataset.component, chart = box.dataset.chart;
-        (valuesOverrides[comp] ??= {})[chart] ??= {};
-        valuesOverrides[comp][chart][k] = v;
+    const schemaForm = body.querySelector("[data-schema-form]");
+    if (schemaForm) {
+      // Generated form: same values for every chart of the deployed
+      // (required + selected) components.
+      const { values, missing } = collectSchemaValues(schemaForm);
+      if (missing.length) {
+        toast("Missing required configuration: " + missing.join(", "), "err");
+        return;
+      }
+      if (Object.keys(values).length) {
+        const selected = new Set(required.map((c) => c.name));
+        for (const n of components) selected.add(n);
+        for (const c of definition.components || []) {
+          if (!selected.has(c.name)) continue;
+          for (const ch of c.charts || []) {
+            (valuesOverrides[c.name] ??= {})[ch.name] ??= {};
+            Object.assign(valuesOverrides[c.name][ch.name], values);
+          }
+        }
+      }
+    } else {
+      body.querySelectorAll(".chart-values").forEach((box) => {
+        box.querySelectorAll(".values-row").forEach((row) => {
+          const k = row.querySelector(".value-key").value.trim();
+          const v = row.querySelector(".value-val").value;
+          if (k === "") return;
+          const comp = box.dataset.component, chart = box.dataset.chart;
+          (valuesOverrides[comp] ??= {})[chart] ??= {};
+          valuesOverrides[comp][chart][k] = v;
+        });
       });
-    });
+    }
     const req = {};
     if (Object.keys(valuesOverrides).length) req.valuesOverrides = valuesOverrides;
     if (components.length) req.components = components.join(",");

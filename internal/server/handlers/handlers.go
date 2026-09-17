@@ -50,6 +50,7 @@ func (h *Handlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+bp+"/api/v1/packages", h.packageList)
 	mux.HandleFunc("GET "+bp+"/api/v1/packages/{id}", h.packageGet)
 	mux.HandleFunc("GET "+bp+"/api/v1/packages/{id}/definition", h.packageDefinition)
+	mux.HandleFunc("GET "+bp+"/api/v1/packages/{id}/config-schema", h.packageConfigSchema)
 	mux.HandleFunc("DELETE "+bp+"/api/v1/packages/{id}", h.packageDelete)
 	mux.HandleFunc("POST "+bp+"/api/v1/packages/{id}/deploy", h.packageDeploy)
 

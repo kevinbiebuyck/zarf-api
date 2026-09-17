@@ -3,6 +3,7 @@
 package store
 
 import (
+	"archive/tar"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -21,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/klauspost/compress/zstd"
 	"github.com/zarf-dev/zarf/src/api/v1alpha1"
 	"github.com/zarf-dev/zarf/src/pkg/packager/layout"
 )
@@ -117,6 +119,49 @@ func (s *Store) Get(_ context.Context, id string) (Package, error) {
 		return Package{}, fmt.Errorf("%w: package %q", ErrNotFound, id)
 	}
 	return pkg, err
+}
+
+// ReadPackageRootFile streams a stored package tarball and returns the
+// contents of the single file name sitting at the archive root (e.g.
+// "config.schema.json"), without extracting the whole package. name must be
+// a plain base name. Returns ErrNotFound when the file is absent.
+func (s *Store) ReadPackageRootFile(_ context.Context, id string, name string) ([]byte, error) {
+	if name == "" || name != filepath.Base(name) || strings.ContainsAny(name, `/\`) {
+		return nil, fmt.Errorf("invalid root file name %q", name)
+	}
+	p, err := s.Path(context.Background(), id)
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.Open(p)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	var r io.Reader = f
+	if strings.HasSuffix(p, ".zst") {
+		zr, err := zstd.NewReader(f)
+		if err != nil {
+			return nil, fmt.Errorf("open zstd stream: %w", err)
+		}
+		defer zr.Close()
+		r = zr
+	}
+	tr := tar.NewReader(r)
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			return nil, fmt.Errorf("%w: %q not in package %q", ErrNotFound, name, id)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read package archive: %w", err)
+		}
+		entry := strings.TrimPrefix(hdr.Name, "./")
+		if hdr.Typeflag == tar.TypeReg && entry == name {
+			return io.ReadAll(tr)
+		}
+	}
 }
 
 // Path returns the on-disk path of a stored package tarball.

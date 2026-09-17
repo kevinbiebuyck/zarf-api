@@ -68,9 +68,11 @@ type DeployRequest struct {
 	// Values are inline helm values, merged before SetValues.
 	Values map[string]any `json:"values,omitempty"`
 	// ValuesOverrides are direct per-chart helm values overrides:
-	// component -> chart -> dot-path -> value (typed by inference). They merge
-	// on top of everything else, like zarf's library-only ValuesOverridesMap.
-	ValuesOverrides map[string]map[string]map[string]string `json:"valuesOverrides,omitempty"`
+	// component -> chart -> dot-path -> value. String values are typed by
+	// inference ("3" -> 3, "true" -> true); non-string JSON values (bool,
+	// number, array, object) are used as-is. They merge on top of everything
+	// else, like zarf's library-only ValuesOverridesMap.
+	ValuesOverrides map[string]map[string]map[string]any `json:"valuesOverrides,omitempty"`
 
 	NamespaceOverride string `json:"namespaceOverride,omitempty"`
 	TakeOwnership     bool   `json:"takeOwnership,omitempty"`
@@ -408,9 +410,10 @@ func buildValues(values map[string]any, setValues map[string]string) (value.Valu
 	return out, nil
 }
 
-// buildOverrides converts the API's component -> chart -> dot-path -> string
-// form into zarf's ValuesOverridesMap with typed, nested values.
-func buildOverrides(in map[string]map[string]map[string]string) (packager.ValuesOverrides, error) {
+// buildOverrides converts the API's component -> chart -> dot-path -> value
+// form into zarf's ValuesOverridesMap with typed, nested values. String
+// leaves are typed by inference; other JSON types are used as-is.
+func buildOverrides(in map[string]map[string]map[string]any) (packager.ValuesOverrides, error) {
 	if len(in) == 0 {
 		return nil, nil
 	}
@@ -424,7 +427,10 @@ func buildOverrides(in map[string]map[string]map[string]string) (packager.Values
 				if !strings.HasPrefix(key, ".") {
 					path = value.Path("." + key)
 				}
-				if err := vals.Set(path, value.InferType(val)); err != nil {
+				if s, ok := val.(string); ok {
+					val = value.InferType(s)
+				}
+				if err := vals.Set(path, val); err != nil {
 					return nil, fmt.Errorf("unable to set value at path %s: %w", key, err)
 				}
 			}
