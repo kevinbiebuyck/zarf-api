@@ -24,7 +24,10 @@
         <p>Drop a <code>.tar.zst</code> package here or
            <button class="btn" id="browse-btn">browse…</button></p>
         <p class="muted">Large packages are uploaded in chunks and verified with zarf on completion.</p>
-        <div id="upload-progress" class="progress hidden"><div class="bar"></div><span class="pct"></span></div>
+        <div id="upload-progress" class="progress-wrap hidden">
+          <div class="progress-label"><span class="name mono"></span><span class="stats muted"></span></div>
+          <div class="progress"><div class="bar"></div></div>
+        </div>
       </div>
       <div id="packages-list"></div>
     </section>

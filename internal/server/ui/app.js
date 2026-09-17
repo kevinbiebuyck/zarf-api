@@ -184,37 +184,73 @@ async function loadPackages() {
 // ---------- chunked upload ----------
 
 const CHUNK_SIZE = 8 * 1024 * 1024;
+let uploadInProgress = false;
+
+// fetch() cannot report upload progress; XHR can.
+function putChunk(url, blob, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(e.loaded / e.total);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) { resolve(); return; }
+      let msg = `HTTP ${xhr.status}`;
+      try { msg = JSON.parse(xhr.responseText).error || msg; } catch { /* keep default */ }
+      reject(new Error(msg));
+    };
+    xhr.onerror = () => reject(new Error("network error"));
+    xhr.send(blob);
+  });
+}
 
 async function uploadPackage(file) {
-  const prog = $("#upload-progress");
-  const bar = prog.querySelector(".bar");
-  const pct = prog.querySelector(".pct");
-  prog.classList.remove("hidden");
-  const setProgress = (f, label) => {
+  if (uploadInProgress) {
+    toast("An upload is already in progress", "err");
+    return;
+  }
+  uploadInProgress = true;
+  const dz = $("#dropzone");
+  const wrap = $("#upload-progress");
+  const bar = wrap.querySelector(".bar");
+  const prog = wrap.querySelector(".progress");
+  const nameEl = wrap.querySelector(".name");
+  const statsEl = wrap.querySelector(".stats");
+  const setProgress = (uploaded, total) => {
+    const f = total ? uploaded / total : 0;
     bar.style.width = (f * 100).toFixed(1) + "%";
-    pct.textContent = label || (f * 100).toFixed(0) + "%";
+    statsEl.textContent = `${fmtBytes(uploaded)} / ${fmtBytes(total)} — ${(f * 100).toFixed(0)}%`;
   };
+  dz.classList.add("busy");
+  wrap.classList.remove("hidden");
+  prog.classList.remove("indet");
+  nameEl.textContent = file.name;
+  setProgress(0, file.size);
   try {
-    setProgress(0, "starting upload…");
     const session = await api("POST", "/uploads", { fileName: file.name });
     const chunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
+    let uploaded = 0;
     for (let i = 0; i < chunks; i++) {
       const blob = file.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-      const res = await fetch(`${API}/uploads/${session.id}/chunks/${i}`, { method: "PUT", body: blob });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || `chunk ${i} failed: HTTP ${res.status}`);
-      }
-      setProgress(((i + 1) / chunks) * 0.95);
+      await putChunk(`${API}/uploads/${session.id}/chunks/${i}`, blob,
+        (f) => setProgress(uploaded + f * blob.size, file.size));
+      uploaded += blob.size;
+      setProgress(uploaded, file.size);
     }
-    setProgress(0.97, "validating with zarf…");
+    // Server-side validation + import: indeterminate phase.
+    prog.classList.add("indet");
+    statsEl.textContent = "validating with zarf…";
     const pkg = await api("POST", `/uploads/${session.id}/complete`);
+    bar.style.width = "100%";
     toast(`Imported ${pkg.id}`, "ok");
     loadPackages();
   } catch (e) {
     toast("Upload failed: " + e.message, "err");
   } finally {
-    prog.classList.add("hidden");
+    uploadInProgress = false;
+    dz.classList.remove("busy");
+    wrap.classList.add("hidden");
   }
 }
 
