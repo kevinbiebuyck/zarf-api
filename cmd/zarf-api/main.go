@@ -21,6 +21,7 @@ import (
 	"github.com/kevinbiebuyck/zarf-api/internal/jobs"
 	"github.com/kevinbiebuyck/zarf-api/internal/server"
 	"github.com/kevinbiebuyck/zarf-api/internal/store"
+	"github.com/kevinbiebuyck/zarf-api/internal/zarfz"
 )
 
 // version is set via -ldflags "-X main.version=..." at build time.
@@ -45,7 +46,12 @@ func run() error {
 	// Configure zarf's process-wide settings the same way the CLI does.
 	zconfig.CommonOptions.CachePath = cfg.CacheDir
 	zconfig.CommonOptions.TempDirectory = cfg.TempDir
-	zconfig.CLIVersion = "zarf-api/" + cfg.Version
+	// CLIVersion must be the zarf library version: package version
+	// requirements are expressed in zarf CLI versions and checked with
+	// semver, so a non-semver value here fails every deploy of packages
+	// that carry requirements. Our own version rides along as semver
+	// build metadata for provenance in deployed-package state.
+	zconfig.CLIVersion = zarfz.ZarfVersion + "+zarf-api." + cfg.Version
 	// Ensure the field manager is set to Zarf during any Helm SDK actions.
 	kube.ManagedFieldsManager = cluster.FieldManagerName
 

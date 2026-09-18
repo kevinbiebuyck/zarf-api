@@ -22,6 +22,12 @@ import (
 	"github.com/zarf-dev/zarf/src/pkg/value"
 )
 
+// ZarfVersion is the version of the vendored zarf submodule. It is reported
+// as zarf's CLIVersion because package version requirements are expressed in
+// zarf CLI versions — our deploy capability is the library's. Bump this when
+// updating the submodule (see .release-please-manifest.json in zarf/).
+const ZarfVersion = "0.85.0"
+
 // Duration is a time.Duration that unmarshals from either a JSON string
 // ("15m") or a JSON number (nanoseconds).
 type Duration time.Duration

@@ -781,16 +781,13 @@ async function loadInstalled() {
 
     const table = el("table");
     table.innerHTML = `<thead><tr>
-      <th>Package</th><th>Version</th><th>Components</th><th>Connectivity</th><th>Gen</th>${customHeaders}<th></th>
+      <th>Package</th><th>Version</th><th>Connectivity</th><th>Gen</th>${customHeaders}<th></th>
     </tr></thead>`;
     const tbody = el("tbody");
     for (const d of deployments) {
       if (d.name === "init") continue; // The init package cannot be managed via the API.
       const tr = el("tr");
-      const comps = (d.deployedComponents || [])
-        .map((c) => `<span class="badge ${c.status === "Succeeded" ? "ok" : "err"}">${esc(c.name)}</span>`)
-        .join(" ");
-      
+
       let customCols = "";
       if (window.ZARF_UI_CUSTOM_COLUMNS) {
         for (const col of window.ZARF_UI_CUSTOM_COLUMNS) {
@@ -802,7 +799,6 @@ async function loadInstalled() {
       tr.insertAdjacentHTML("beforeend", `
         <td class="mono" title="${esc(JSON.stringify(d, null, 2))}">${esc(d.name)}</td>
         <td class="mono">${esc(d.data?.metadata?.version || "—")}</td>
-        <td>${comps}</td>
         <td>${esc(d.packageConnectivity || "—")}</td>
         <td>${d.generation ?? "—"}</td>
         ${customCols}
